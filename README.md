@@ -665,7 +665,7 @@ logger:
 
 **Basic workflow**
 
-1. Write your PyTorch Lightning module (see [models/mnist_module.py](src/models/mnist_module.py) for example)
+1. Write your PyTorch Lightning module (see [models/mnist_module.py](src/models/idpfold_multimer.py) for example)
 2. Write your PyTorch Lightning datamodule (see [data/mnist_datamodule.py](src/data/mnist_datamodule.py) for example)
 3. Write your experiment config, containing paths to model and datamodule
 4. Run training with chosen experiment config:
@@ -736,7 +736,7 @@ You can use many of them at once (see [configs/logger/many_loggers.yaml](configs
 
 You can also write your own logger.
 
-Lightning provides convenient method for logging custom metrics from inside LightningModule. Read the [docs](https://pytorch-lightning.readthedocs.io/en/latest/extensions/logging.html#automatic-logging) or take a look at [MNIST example](src/models/mnist_module.py).
+Lightning provides convenient method for logging custom metrics from inside LightningModule. Read the [docs](https://pytorch-lightning.readthedocs.io/en/latest/extensions/logging.html#automatic-logging) or take a look at [MNIST example](src/models/idpfold_multimer.py).
 
 <br>
 
@@ -883,7 +883,7 @@ some_param: ${data.some_param}
 Another approach is to access datamodule in LightningModule directly through Trainer:
 
 ```python
-# ./src/models/mnist_module.py
+# ./src/models/idpfold_multimer.py
 def on_train_start(self):
   self.some_param = self.trainer.datamodule.some_param
 ```
