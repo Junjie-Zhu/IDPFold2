@@ -101,8 +101,8 @@ def CentreRandomAugmentation(x, mask, s_trans=1):
     x = x - mean_x[:, None]
     B = x.shape[0]
     R = [Rotation.random().as_matrix() for _ in range(B)]
-    R = torch.tensor(R, dtype=x.dtype)  # (B, 3, 3)
-    t = s_trans * torch.normal(0., 1., size=[B, 1, 3])
+    R = torch.tensor(R, dtype=x.dtype).to(x.device)  # (B, 3, 3)
+    t = s_trans * torch.normal(0., 1., size=[B, 1, 3]).to(x.device)
     x = x @ R + t
     x = x * mask
     return x
@@ -171,11 +171,10 @@ class DiffusionModule(nn.Module):
         rel_pos_encoding = representations['rel_pos_encoding']  # (raw_batch, N_token, N_token, d2)
         # atom_mask = batch['all_atom_pos_mask']  # (B, N_atom)
         seq_mask = batch['seq_mask']  # (B, N_token)
-
         si, zij = self.diffusion_conditioning(
             t_hat, rel_pos_encoding, s_inputs, s_trunk, z_trunk, self.sigma_data)
 
-        t_hat = t_hat.unsqueeze([1, 2])
+        t_hat = t_hat.unsqueeze(1).unsqueeze(2)
         r_noisy = x_noisy / torch.sqrt(t_hat ** 2 + self.sigma_data ** 2)
 
         atom_token_uid = batch['ref_token2atom_idx']
@@ -222,8 +221,10 @@ class DiffusionModule(nn.Module):
             gamma = self.gamma0 if c_tau > self.gamma_min else 0
             t_hat = c_tau_1 * (gamma + 1)
             xi = self.lambda_ * torch.sqrt(t_hat ** 2 - c_tau_1 ** 2) * torch.normal(0., 1., size=[B, N_atom, 3])
-            x_noisy = x + xi
-            x_denoised = self._forward_model(x_noisy, torch.tile(t_hat, [B]), batch, representations)
+            x_noisy = x + xi.to(x.device)
+            x_denoised = self._forward_model(x_noisy,
+                                             torch.tile(t_hat, [B]).to(x_noisy.device),
+                                             batch, representations)
             delta = (x_noisy - x_denoised) / t_hat
             dt = c_tau - t_hat
             x = x_noisy + self.eta * dt * delta
@@ -294,7 +295,7 @@ class Transition(nn.Module):
         x = self.ln(x)
         a = self.lin1(x)
         b = self.lin2(x)
-        x = self.lin3(nn.functional.swish(a) * b)
+        x = self.lin3(nn.functional.silu(a) * b)
         return x
 
 
@@ -394,26 +395,27 @@ class AttentionPairBias(nn.Module):
         """
         assert self.has_si == (not si is None)
 
-        B, N, D = torch.shape(ai)
+        B, N, D = ai.shape
         H, d = self.n_head, self.head_dim
 
         if self.has_si:
             ai = self.ln(ai, si)
         else:
             ai = self.ln(ai)
-        q = self.q_lin(ai).reshape([B, N, H, d]).transpose([0, 2, 1, 3])  # (B, H, N, d)
-        k = self.k_lin(ai).reshape([B, N, H, d]).transpose([0, 2, 1, 3])  # (B, H, N, d)
-        v = self.v_lin(ai).reshape([B, N, H, d]).transpose([0, 2, 1, 3])  # (B, H, N, d)
+        q = self.q_lin(ai).reshape([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
+        k = self.k_lin(ai).reshape([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
+        v = self.v_lin(ai).reshape([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
         # zij is not tiled by diff_batch_size so far
         b = self.b_lin(self.b_ln(zij))  # (B, N, N, H) or (B, C, nq, nk, H)
         g = nn.functional.sigmoid(self.g_lin(ai)) \
-            .reshape([B, N, H, d]).transpose([0, 2, 1, 3])  # (B, H, N, d)
+            .reshape([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
         diff_batch_size = ai.shape[0] // b.shape[0]
 
         if len(zij.shape) == 5:
             # local attention
             M = ai.shape[1]
             atten_idx = self._AttenIndex.get_atten_idx(M)
+            atten_idx = {k: v.to(ai.device) for k, v in atten_idx.items()}
 
             query_idx = atten_idx['query_idx'].flatten()  # [C,32]
             query_mask = atten_idx['query_mask'][..., None, None, None]  # [C,32,1,1,1]
@@ -422,10 +424,10 @@ class AttentionPairBias(nn.Module):
             alpha_mask = atten_idx['alpha_mask']  # [C,32,128]
             C, n_query, n_key = alpha_mask.shape
 
-            q = q.transpose([2, 0, 1, 3])  # (B, H, N, d) -> (N, B, H, d)
-            k = k.transpose([2, 0, 1, 3])  # (B, H, N, d) -> (N, B, H, d)
-            v = v.transpose([2, 0, 1, 3])  # (B, H, N, d) -> (N, B, H, d)
-            g = g.transpose([2, 0, 1, 3])  # (B, H, N, d) -> (N, B, H, d)
+            q = q.permute(2, 0, 1, 3)  # (B, H, N, d) -> (N, B, H, d)
+            k = k.permute(2, 0, 1, 3)  # (B, H, N, d) -> (N, B, H, d)
+            v = v.permute(2, 0, 1, 3)  # (B, H, N, d) -> (N, B, H, d)
+            g = g.permute(2, 0, 1, 3)  # (B, H, N, d) -> (N, B, H, d)
 
             query_like_shape = [C, n_query, B, H, d]
             key_like_shape = [C, n_key, B, H, d]
@@ -437,17 +439,17 @@ class AttentionPairBias(nn.Module):
             v = v[key_idx].reshape(key_like_shape) * key_mask  # (C, 128, B, H, d)
             g = g[query_idx].reshape(query_like_shape) * query_mask  # (C, 32, B, H, d)
 
-            q = q.transpose([2, 3, 0, 1, 4])  # (C, 32, B, H, d) -> (B, H, C, 32, d)
-            k = k.transpose([2, 3, 0, 1, 4])  # (C, 128, B, H, d) -> (B, H, C, 128, d)
-            v = v.transpose([2, 3, 0, 1, 4])  # (C, 128, B, H, d) -> (B, H, C, 128, d)
-            g = g.transpose([2, 3, 0, 1, 4])  # (C, 32, B, H, d) -> (B, H, C, 32, d)
-            b = b.transpose([0, 4, 1, 2, 3])  # (b, C, 32, 128, H) -> (b, H, C, 32, 128)
+            q = q.permute(2, 3, 0, 1, 4)  # (C, 32, B, H, d) -> (B, H, C, 32, d)
+            k = k.permute(2, 3, 0, 1, 4)  # (C, 128, B, H, d) -> (B, H, C, 128, d)
+            v = v.permute(2, 3, 0, 1, 4)  # (C, 128, B, H, d) -> (B, H, C, 128, d)
+            g = g.permute(2, 3, 0, 1, 4)  # (C, 32, B, H, d) -> (B, H, C, 32, d)
+            b = b.permute(0, 4, 1, 2, 3)  # (b, C, 32, 128, H) -> (b, H, C, 32, 128)
 
             if diff_batch_size > 1:
                 b = tile_batch_dim(b, diff_batch_size)
             beta = tile_batch_dim(beta, ai.shape[0])
             b = (b + beta.unsqueeze(1))  # (B, H, C, 32, 128)
-            alpha = torch.matmul(q / np.sqrt(d), k, transpose_y=True) + b  # (B, H, C, 32, 128)
+            alpha = torch.matmul(q / np.sqrt(d), k.transpose(-2, -1)) + b  # (B, H, C, 32, 128)
             alpha = torch.nn.functional.softmax(alpha)
             alpha = self.alpha_dropout(alpha)
 
@@ -461,15 +463,15 @@ class AttentionPairBias(nn.Module):
                 b = tile_batch_dim(b, diff_batch_size)
             if beta.shape[0] == 1:
                 beta = beta.tile([ai.shape[0], 1, 1])
-            b = (b + beta[..., None]).transpose([0, 3, 1, 2])  # (B, N, N, H) -> (B, H, N, N)
+            b = (b + beta[..., None]).permute(0, 3, 1, 2)  # (B, N, N, H) -> (B, H, N, N)
 
-            alpha = torch.matmul(q / np.sqrt(d), k, transpose_y=True) + b  # (B, H, N, N)
+            alpha = torch.matmul(q / np.sqrt(d), k.transpose(-2, -1)) + b  # (B, H, N, N)
             alpha = F.softmax(alpha)  # (B, H, N, N)
             alpha = self.alpha_dropout(alpha)
 
             ai = torch.matmul(alpha, v) * g  # (B, H, N, d)
 
-        ai = ai.transpose([0, 2, 1, 3]).reshape([B, N, D])
+        ai = ai.permute(0, 2, 1, 3).reshape([B, N, D])
         ai = self.out_lin1(ai)
         ai = self.out_dropout(ai)
         if self.has_si:
@@ -494,7 +496,7 @@ class ConditionedTransitionBlock(nn.Module):
     def forward(self, a, s):
         """forward"""
         a = self.ln(a, s)
-        b = nn.functional.swish(self.lin1(a)) * self.lin2(a)
+        b = nn.functional.silu(self.lin1(a)) * self.lin2(a)
         a = nn.functional.sigmoid(self.lin3(s)) * self.lin4(b)
         return a
 
@@ -624,7 +626,7 @@ class AtomAttentionEncoder(nn.Module):
         f_atom_name_chars = F.one_hot(
             feature['ref_atom_name_chars'], num_classes=64)  # (B, M, 4, 64)
         f_atom_name_chars = f_atom_name_chars.reshape(
-            f_atom_name_chars.shape[:2] + [4 * 64])  # (B, M, 4*64)
+            [f_atom_name_chars.shape[0], f_atom_name_chars.shape[1], 4 * 64])  # (B, M, 4*64)
         atom_feat_concat = torch.concat(
             [f_ref_pos, f_ref_charge, f_ref_mask, f_ref_element, f_atom_name_chars],
             dim=-1) * f_ref_mask
@@ -719,6 +721,7 @@ class AtomTransformer(nn.Module):
 
         M = ql.shape[1]
         atten_idx = self._AttenIndex.get_atten_idx(M)
+        atten_idx = {k: v.to(ql.device) for k, v in atten_idx.items()}
         if len(plm.shape) == 4:
             # sparse plm
             beta = self._get_beta_mask(M)  # [M,M]
@@ -726,7 +729,7 @@ class AtomTransformer(nn.Module):
             # dense plm
             assert len(plm.shape) == 5
             alpha_mask = atten_idx['alpha_mask']
-            beta = torch.full_like(alpha_mask, fill_value=-10.0 ** 10, dtype='bfloat16')
+            beta = torch.full_like(alpha_mask, fill_value=-10.0 ** 10, dtype=torch.bfloat16)
             beta[alpha_mask == 1] = 0
 
         beta = beta[None]  # [1, M, M] or [1, C, 32, 128]
@@ -938,19 +941,17 @@ class AttentionIndex:
         nq, nk = self.n_query, self.n_key
         M = self.max_atom_num
         centers, C = self.get_current_centers()
-
         xid, yid = [], []
         for c in centers:
             T = np.max([c - nq // 2, 0])
             B = np.min([c + nq // 2, M])
             L = np.max([c - nk // 2, 0])
             R = np.min([c + nk // 2, M])
-            x, y = np.meshgrid(np.arange(T, B, dtype=np.int32),
-                               np.arange(L, R, dtype=np.int32))
+            x, y = np.meshgrid(np.arange(T, B, dtype=np.int64),
+                               np.arange(L, R, dtype=np.int64))
             # shape: x:[R-L, B-T], y:[R-L, B-T]
             xid.append(x.T.flatten())  # [(B-T)*(R-L)]
             yid.append(y.T.flatten())  # [(B-T)*(R-L)]
-
         xid = np.concatenate(xid, axis=0)
         yid = np.concatenate(yid, axis=0)
         self._xid, self._yid = xid, yid
@@ -972,11 +973,11 @@ class AttentionIndex:
         M = self.max_atom_num
 
         # query indices
-        query_idx = np.arange(M, dtype=np.int32)
+        query_idx = np.arange(M, dtype=np.int64)
         query_pad_len = C * nq - M
-        query_pad = np.full([query_pad_len], -1, dtype=np.int32)
+        query_pad = np.full([query_pad_len], -1, dtype=np.int64)
         query_idx = np.concatenate([query_idx, query_pad]).reshape(C, nq)
-        query_mask = (query_idx != -1).astype(np.int32)
+        query_mask = (query_idx != -1).astype(np.int64)
         query_idx *= query_mask
 
         # key indices
@@ -985,11 +986,11 @@ class AttentionIndex:
             start = np.max([c - nk // 2, 0])
             end = np.min([c + nk // 2, M])
             window_len = end - start
-            key_id_c = np.full(nk, -1, dtype=np.int32)
-            key_id_c[:window_len] = np.arange(start, end, dtype=np.int32)
+            key_id_c = np.full(nk, -1, dtype=np.int64)
+            key_id_c[:window_len] = np.arange(start, end, dtype=np.int64)
             key_blks.append(key_id_c)
         key_idx = np.concatenate(key_blks).reshape([C, nk])
-        key_mask = (key_idx != -1).astype(np.int32)
+        key_mask = (key_idx != -1).astype(np.int64)
         key_idx *= key_mask
 
         # alpha mask
@@ -998,7 +999,7 @@ class AttentionIndex:
 
         # bias indices and beta indices
         valid_pair_id = self._xid * M + self._yid
-        pair_idx = np.zeros_like(alpha_mask, dtype=np.int32).flatten()
+        pair_idx = np.zeros_like(alpha_mask, dtype=np.int64).flatten()
         np.put_along_axis(pair_idx, valid_alpha_idx, valid_pair_id, axis=0)
         pair_idx = pair_idx.reshape([C, nq, nk])
 
@@ -1041,10 +1042,16 @@ class AttentionIndex:
         C, nq, nk = index['pair_idx'].shape
         xid, yid = self.get_xy_idx(M)
         valid_pair_id = xid * M + yid
-        valid_alpha_idx = index['alpha_mask'].flatten().nonzero()
-        index['pair_idx'] = torch.scatter_nd(index=valid_alpha_idx,
-                                             updates=valid_pair_id,
-                                             shape=[C * nq * nk])
+        valid_alpha_idx = index['alpha_mask'].flatten().nonzero().squeeze(-1)
+        index['pair_idx'].reshape([C * nq * nk])
+
+        # pad valid_pair_id and valid_alpha_idx to length of pair_idx
+        valid_pair_id = torch.concat([valid_pair_id,
+                                      valid_pair_id[-1].expand(C * nq * nk - valid_pair_id.shape[0])])
+        valid_alpha_idx = torch.concat([valid_alpha_idx,
+                                        valid_alpha_idx[-1].expand(C * nq * nk - valid_alpha_idx.shape[0])])
+
+        index['pair_idx'].reshape([C * nq * nk]).scatter_(0, valid_alpha_idx, valid_pair_id)
         index['pair_idx'] = index['pair_idx'].reshape([C, nq, nk])
 
     def get_current_centers(self):
@@ -1185,10 +1192,10 @@ class AtomPairUtil():
         atom_token_uid = atom_token_uid.flatten(0, 1)  # [B*M]
         f_pair = f_pair.flatten(0, 1)  # [B*N,N,D]
         f_pair = f_pair[atom_token_uid] * atom_mask.reshape([-1, 1, 1])  # [B*M,N,D]
-        f_pair = f_pair.reshape([B, M, N, D]).transpose([0, 2, 1, 3]).flatten(0, 1)  # [B*N,M,D]
+        f_pair = f_pair.reshape([B, M, N, D]).permute(0, 2, 1, 3).flatten(0, 1)  # [B*N,M,D]
         f_pair = f_pair[atom_token_uid] * atom_mask.reshape([-1, 1, 1])  # [B*M,M,D]
 
-        return f_pair.reshape([B, M, M, D]).transpose([0, 2, 1, 3])  # [B,M,M,D]
+        return f_pair.reshape([B, M, M, D]).permute(0, 2, 1, 3)  # [B,M,M,D]
 
     def _pair_to_atompair_dense(self, f_pair, atom_token_uid):
         """ Convert per-token pair feature to dense atom-pair features.
@@ -1202,11 +1209,14 @@ class AtomPairUtil():
         """
         b, _, _, D = f_pair.shape
         M = atom_token_uid.shape[1]
-        pair_mask = self._AttenIdx.get_atten_idx(M)['alpha_mask']  # [C,nq,nk]
+        pair_mask = self._AttenIdx.get_atten_idx(M)['alpha_mask'].to(f_pair.device)  # [C,nq,nk]
         C, nq, nk = pair_mask.shape
-        # local indices (x,y) in atompair, dense tensor:[num_valid_ap] ¡Ö C*nq*nk
+        # local indices (x,y) in atompair, dense tensor:[num_valid_ap] â‰ˆ C*nq*nk
         ap_id_x, ap_id_y = self._AttenIdx.get_xy_idx(M)
         valid_pair_idx = pair_mask.flatten().nonzero()  # [num_valid_ap]
+        valid_pair_idx = torch.cat([valid_pair_idx,
+                                    valid_pair_idx[-1].expand([C * nq * nk - valid_pair_idx.shape[0], -1])],
+                                   dim=0)
 
         ap = []
         for i in range(b):
@@ -1214,9 +1224,11 @@ class AtomPairUtil():
             # query and key feats
             x_seq_id, y_seq_id = uid[ap_id_x], uid[ap_id_y]
             ap_feat_dense = f_pair[i][x_seq_id, y_seq_id]  # [num_valid_ap, b, D]
-            atompair = torch.scatter_nd(index=valid_pair_idx,
-                                        updates=ap_feat_dense,
-                                        shape=[C * nq * nk, D])
+            ap_feat_dense = torch.cat([ap_feat_dense,
+                                       ap_feat_dense[-1].expand([C * nq * nk - ap_feat_dense.shape[0], -1])],
+                                      dim=0)
+            atompair = torch.zeros([C * nq * nk, D], dtype=ap_feat_dense.dtype).to(f_pair.device)
+            atompair.scatter_(0, valid_pair_idx, ap_feat_dense)
             atompair = atompair.reshape([C, nq, nk, D])  # [B,C,nq,nk,D]
             ap.append(atompair)
 
@@ -1235,18 +1247,25 @@ class AtomPairUtil():
         """
         B, M, D = ql.shape
         xid, yid = self._AttenIdx.get_xy_idx(M)  # dense:[num_valid_ap]->C*nq*nk
-        pair_mask = self._AttenIdx.get_atten_idx(M)['alpha_mask']  # [C,nq,nk]
+        pair_mask = self._AttenIdx.get_atten_idx(M)['alpha_mask'].to(ql.device)  # [C,nq,nk]
         C, nq, nk = pair_mask.shape
         valid_pair_idx = pair_mask.flatten().nonzero()  # [num_valid_ap]
 
-        ql = ql.transpose([1, 0, 2])  # [M, B, D]
-        qm = qm.transpose([1, 0, 2])  # [M, B, D]
+        ql = ql.permute(1, 0, 2)  # [M, B, D]
+        qm = qm.permute(1, 0, 2)  # [M, B, D]
         ap_dense = func(ql[xid], qm[yid])  # [num_valid_ap, B, D]
 
-        ap_sparse = torch.scatter_nd(index=valid_pair_idx,
-                                     updates=ap_dense,
-                                     shape=[C * nq * nk, B, D])
-        return ap_sparse.reshape([C, nq, nk, B, D]).transpose([3, 0, 1, 2, 4])  # [B,C,nq,nk,D]
+        ap_sparse = torch.zeros([C * nq * nk, B, D], dtype=ap_dense.dtype).to(ql.device)
+
+        valid_pair_idx = torch.cat([valid_pair_idx,
+                                    valid_pair_idx[-1].expand([C * nq * nk - valid_pair_idx.shape[0], -1])],
+                                   dim=0).unsqueeze(-1)
+        ap_dense = torch.cat([ap_dense,
+                              ap_dense[-1].expand([C * nq * nk - ap_dense.shape[0], -1, -1])],
+                             dim=0)
+
+        ap_sparse.scatter_(0, valid_pair_idx, ap_dense)
+        return ap_sparse.reshape([C, nq, nk, B, D]).permute(3, 0, 1, 2, 4)  # [B,C,nq,nk,D]
 
     def _add_2_seqs_sparse(self, ql, qm):
         """ Create sparse feature by adding two atom-level sequences feature.
@@ -1344,10 +1363,10 @@ def pair_to_atompair(f_pair, atom_token_uid, atom_mask):
     atom_token_uid = atom_token_uid.flatten(0, 1)  # [B*M]
     f_pair = f_pair.flatten(0, 1)  # [B*N,N,D]
     f_pair = f_pair[atom_token_uid] * atom_mask.reshape([-1, 1, 1])  # [B*M,N,D]
-    f_pair = f_pair.reshape([B, M, N, D]).transpose([0, 2, 1, 3]).flatten(0, 1)  # [B*N,M,D]
+    f_pair = f_pair.reshape([B, M, N, D]).permute(0, 2, 1, 3).flatten(0, 1)  # [B*N,M,D]
     f_pair = f_pair[atom_token_uid] * atom_mask.reshape([-1, 1, 1])  # [B*M,M,D]
 
-    return f_pair.reshape([B, M, M, D]).transpose([0, 2, 1, 3])
+    return f_pair.reshape([B, M, M, D]).permute(0, 2, 1, 3)
 
 
 """ Per-atom features to per-token features """
@@ -1371,15 +1390,22 @@ def aggregate_atom_feat_to_token(f_atom, atom_token_uid, atom_mask, n_token):
     for i in range(B):
         idx = atom_token_uid[i].type(torch.long)
         mask = atom_mask[i]
-        atom_sum = torch.geometric.segment_sum(data=f_atom[i][mask == 1],
-                                               segment_ids=idx[mask == 1])
-        atom_count = torch.geometric.segment_sum(data=mask[mask == 1],
-                                                 segment_ids=idx[mask == 1])
+
+        data = f_atom[i][mask == 1]
+        segment_ids = idx[mask == 1]
+        count_data = mask[mask == 1]
+
+        atom_sum = torch.zeros(segment_ids.max().item() + 1, data.size(1), device=data.device)
+        atom_sum.scatter_add_(0, segment_ids.unsqueeze(1).expand(-1, data.size(1)), data)
+
+        atom_count = torch.zeros(segment_ids.max().item() + 1, device=data.device)
+        atom_count.scatter_add_(0, segment_ids, count_data)
+
         atom_mean = atom_sum / (atom_count[:, None] + 1e-8)
         f_atom_mean.append(atom_mean.unsqueeze(0))
     f_atom_mean = torch.concat(f_atom_mean, dim=0)
     pad_len = n_token - f_atom_mean.shape[1]
-    padding = torch.zeros([B, pad_len, D], dtype=f_atom.dtype)
+    padding = torch.zeros([B, pad_len, D], dtype=f_atom.dtype).to(f_atom.device)
     f_token = torch.concat([f_atom_mean, padding], 1)
     return f_token
 
@@ -1393,10 +1419,10 @@ if __name__ == "__main__":
     global_config = model_config.global_config
 
     diffusion_module = DiffusionModule(channel_num, model_config.heads.diffusion_module, global_config)
-    print(diffusion_module)
+    # print(diffusion_module)
 
     input_representation = {
-        'single_input': torch.ones(25, 64, 384),
+        'single_inputs': torch.ones(25, 64, 384 + 32 + 32 + 1),  # the most initial representation
         'single': torch.ones(25, 64, 384),
         'pair': torch.ones(5, 64, 64, 128),
         'rel_pos_encoding': torch.ones(5, 64, 64, 128),
@@ -1405,13 +1431,14 @@ if __name__ == "__main__":
     input_batch = {
         'all_atom_pos_mask': torch.ones(25, 64 * 5),
         'seq_mask': torch.ones(25, 64),
-        'ref_token2atom_idx': torch.ones(25, 64 * 5),
-        'ref_element': torch.ones(25, 64 * 5, 128),
+        'ref_token2atom_idx': torch.ones(25, 64 * 5, dtype=torch.int64),
+        'ref_element': torch.ones(25, 64 * 5, dtype=torch.int64),
         'ref_pos': torch.ones(25, 64 * 5, 3),
         'ref_space_uid': torch.ones(25, 64 * 5),
-        'ref_charge': torch.ones(25, 64 * 5, 1),
-        'ref_mask': torch.ones(25, 64 * 5, 1),
-        'ref_atom_name_chars': torch.ones(25, 64 * 5, 4, 64),
+        'ref_charge': torch.ones(25, 64 * 5),
+        'ref_mask': torch.ones(25, 64 * 5),
+        'ref_atom_name_chars': torch.ones(25, 64 * 5, 4, dtype=torch.int64),
+        'residue_index': torch.ones(25, 64),
     }
 
     diffusion_module.cuda()
@@ -1420,4 +1447,3 @@ if __name__ == "__main__":
 
     output = diffusion_module.sample_diffusion(input_representation, input_batch, step_num=3)
     print(output)
-
