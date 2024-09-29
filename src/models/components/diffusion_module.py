@@ -113,7 +113,15 @@ class DiffusionModule(nn.Module):
     Diffusion Module
     """
 
-    def __init__(self, channel_num, config, global_config):
+    def __init__(self,
+                 training: bool,
+                 token_channel: int,
+                 diffusion_token_channel: int,
+                 diffusion_conditioning: nn.Module,
+                 atom_attention_encoder: nn.Module,
+                 diffusion_transformer_main: nn.Module,
+                 atom_attention_decoder: nn.Module,
+                 ):
         super(DiffusionModule, self).__init__()
         self.config = config
         self.global_config = global_config
@@ -130,23 +138,21 @@ class DiffusionModule(nn.Module):
         self.P_mean = -1.2
         self.P_std = 1.5
 
-        token_channel = channel_num['token_channel']
-        diffusion_token_channel = channel_num['diffusion_token_channel']
+        token_channel = token_channel
+        diffusion_token_channel = diffusion_token_channel
 
         ## network
-        self.diffusion_conditioning = DiffusionConditioning(
-            channel_num, self.config.diffusion_conditioning, self.global_config)
-        self.atom_encoder = AtomAttentionEncoder(
-            channel_num, self.config.atom_encoder, self.global_config)
+        self.diffusion_conditioning = diffusion_conditioning
+        self.atom_encoder = atom_attention_encoder
 
         self.ln1 = nn.LayerNorm(token_channel)
         self.lin1 = nn.Linear(token_channel, diffusion_token_channel, bias=False)
-        self.diffusion_transformer = DiffusionTransformer(
-            channel_num, self.config.diffusion_transformer, self.global_config)
+        self.diffusion_transformer = diffusion_transformer_main
 
         self.ln2 = nn.LayerNorm(diffusion_token_channel)
-        self.atom_decoder = AtomAttentionDecoder(
-            channel_num, self.config.atom_decoder, self.global_config)
+        self.atom_decoder = atom_attention_decoder
+        
+        self.training = training
 
     def _noise_schedule(self, step_num):
         assert step_num > 0
@@ -199,10 +205,14 @@ class DiffusionModule(nn.Module):
 
     def forward(self, representations, batch):
         """forward"""
-
-        return self.sample_diffusion(representations, batch)
-
-        ### for sampling
+        if self.training:
+            # Network prediction for just one step (given x_noisy and t_hat)
+            x_noisy = batch['x_noisy']
+            t_hat = batch['t_hat']
+            return self._forward_model(x_noisy, t_hat, batch, representations)
+        else:
+            # Full step diffusion sampling
+            return self.sample_diffusion(representations, batch)
 
     def sample_diffusion(self, representations, batch, step_num=200):
         """
@@ -242,11 +252,13 @@ class DiffusionConditioning(nn.Module):
     DiffusionConditioning
     """
 
-    def __init__(self, channel_num, config, global_config):
+    def __init__(self,
+                 token_channel: int,
+                 token_pair_channel: int):
         super(DiffusionConditioning, self).__init__()
 
-        token_channel = channel_num['token_channel']
-        pair_channel = channel_num['token_pair_channel']
+        token_channel = token_channel
+        pair_channel = token_pair_channel
 
         self.pair_ln = nn.LayerNorm(pair_channel * 2)
         self.pair_lin = nn.Linear(pair_channel * 2, pair_channel, bias=False)
@@ -328,19 +340,22 @@ class DiffusionTransformer(nn.Module):
     DiffusionTransformer
     """
 
-    def __init__(self, channel_num, config, global_config):
+    def __init__(self,
+                 a_channel: int,
+                 s_channel: int,
+                 z_channel: int,
+                 n_block: int,
+                 n_head: int):
         super(DiffusionTransformer, self).__init__()
-        self.config = config
-        a_channel = channel_num[self.config.a_channel_name]
-        s_channel = channel_num[self.config.s_channel_name]
-        z_channel = channel_num[self.config.z_channel_name]
+        self.n_block = n_block
+        self.n_head = n_head
 
         self.attention_list = nn.ModuleList()
         self.transition_list = nn.ModuleList()
-        for n in range(self.config.n_block):
+        for n in range(self.n_block):
             self.attention_list.append(AttentionPairBias(
                 a_channel, s_channel, z_channel,
-                self.config.n_head, has_si=True))
+                self.n_head, has_si=True))
             self.transition_list.append(ConditionedTransitionBlock(
                 a_channel, s_channel))
 
@@ -530,17 +545,24 @@ class AtomAttentionEncoder(nn.Module):
     AtomAttentionEncoder: only support multimer-monomer
     """
 
-    def __init__(self, channel_num, config, global_config):
+    def __init__(self,
+                 in_token_channel: int,
+                 out_token_channel: int,
+                 token_pair_channel: int,
+                 atom_channel: int,
+                 atom_pair_channel: int,
+                 use_dense_mode: bool,
+                 atom_transformer: nn.Module):
         super(AtomAttentionEncoder, self).__init__()
         self.config = config
-        in_token_channel = channel_num[self.config.in_token_channel_name]
-        out_token_channel = channel_num[self.config.out_token_channel_name]
-        token_pair_channel = channel_num['token_pair_channel']
-        atom_channel = channel_num['atom_channel']
-        atom_pair_channel = channel_num['atom_pair_channel']
+        in_token_channel = in_token_channel
+        out_token_channel = out_token_channel
+        token_pair_channel = token_pair_channel
+        atom_channel = atom_channel
+        atom_pair_channel = atom_pair_channel
 
         self.ap_util = AtomPairUtil()
-        self.dense = config.use_dense_mode
+        self.dense = use_dense_mode
 
         f_dim = 3 + 1 + 1 + 128 + 4 * 64
         self.lin_atom_meta_to_cond_feat = \
@@ -581,8 +603,7 @@ class AtomAttentionEncoder(nn.Module):
             nn.Linear(atom_pair_channel, atom_pair_channel, bias=False),
         )
 
-        self.atom_transformer = AtomTransformer(
-            channel_num=channel_num, config=config.atom_transformer, global_config=global_config)
+        self.atom_transformer = atom_transformer
 
         # aggregate atom representation to token representation
         self.act_atom_to_token = nn.ReLU()
@@ -701,14 +722,15 @@ class AtomAttentionEncoder(nn.Module):
 class AtomTransformer(nn.Module):
     " Atom Transformer for HF3. "
 
-    def __init__(self, channel_num, config, global_config):
+    def __init__(self,
+                 n_query: int,
+                 n_key: int,
+                 diffusion_transformer: nn.Module):
         super(AtomTransformer, self).__init__()
-        self.config = config
-        self.n_query = config.n_query
-        self.n_key = config.n_key
+        self.n_query = n_query
+        self.n_key = n_key
         self.default_size = 10000
-        self.diff_transformer = DiffusionTransformer(
-            channel_num, config.diffusion_transformer, global_config)
+        self.diff_transformer = diffusion_transformer
         self._AttenIndex = AttentionIndex(self.default_size, self.n_query, self.n_key)
 
     def forward(self, ql, cl, plm):
@@ -770,21 +792,21 @@ class AtomTransformer(nn.Module):
 class AtomAttentionDecoder(nn.Module):
     " Atom Attention Decoder for HF3. "
 
-    def __init__(self, channel_num, config, global_config):
+    def __init__(self,
+                 in_token_channel: int,
+                 atom_channel: int,
+                 final_zero_init: bool,
+                 atom_transformer: nn.Module):
         super(AtomAttentionDecoder, self).__init__()
         self.config = config
-        token_channel = channel_num[self.config.in_token_channel_name]
-        if 'out_channel_name' in self.config:
-            out_channel = channel_num[self.config.out_channel_name]
-        else:
-            out_channel = 3
-        atom_channel = channel_num['atom_channel']
+        token_channel = in_token_channel
+        out_channel = 3
+        atom_channel = atom_channel
         self.lin0 = nn.Linear(token_channel, atom_channel, bias=False)
-        self.atom_transformer = AtomTransformer(
-            channel_num, config.atom_transformer, global_config)
+        self.atom_transformer = atom_transformer
         self.ln1 = nn.LayerNorm(atom_channel)
 
-        if config.get('final_zero_init', True):
+        if final_zero_init:
             self.lin1 = nn.Linear(atom_channel, out_channel, bias=False)
             nn.init.constant_(self.lin1.weight, 0.)
         else:

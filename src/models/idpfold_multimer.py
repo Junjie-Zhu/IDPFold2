@@ -6,7 +6,7 @@ from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
 
 
-class MNISTLitModule(LightningModule):
+class IDPFold_multimer(LightningModule):
     """Example of a `LightningModule` for MNIST classification.
 
     A `LightningModule` implements 8 key methods:

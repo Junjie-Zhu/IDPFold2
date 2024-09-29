@@ -1,4 +1,4 @@
-_target_: src.models.mnist_module.MNISTLitModule
+_target_: src.models.mnist_module.IDPFold_multimer
 
 optimizer:
   _target_: torch.optim.Adam
@@ -14,12 +14,60 @@ scheduler:
   patience: 10
 
 net:
-  _target_: src.models.components.simple_dense_net.SimpleDenseNet
-  input_size: 784
-  lin1_size: 64
-  lin2_size: 128
-  lin3_size: 64
-  output_size: 10
+  _target_: src.models.components.diffusion_module.DiffusionModule
+  'training': False
+  'token_channel': 384
+  'diffusion_token_channel': 768
+  'diffusion_conditioning':
+    _target_: src.models.components.diffusion_module.DiffusionConditioning
+    'token_channel': 384
+    'token_pair_channel': 128
+  'atom_attention_encoder':
+    _target_: src.models.components.diffusion_module.AtomAttentionEncoder
+    'in_token_channel': 384  # the same as token_channel
+    'out_token_channel': 768  # the same as diffusion_token_channel
+    'token_pair_channel': 128
+    'atom_channel': 128,
+    'atom_pair_channel': 16
+    'use_dense_mode': True
+    'atom_transformer':
+      _target_: src.models.components.diffusion_module.AtomTransformer
+      'n_query': 32
+      'n_key': 128
+      'diffusion_transformer':
+        _target_: src.models.components.diffusion_module.DiffusionTransformer
+        'a_channel_name': 128  # the same as atom_channel
+        's_channel_name': 128  # the same as atom_channel
+        'z_channel_name': 16  # the same as atom_pair_channel
+        'n_block': 3
+        'n_head': 4
+  'diffusion_transformer_main':
+    _target_: src.models.components.diffusion_module.DiffusionTransformer
+    'a_channel_name': 768  # the same as diffusion_token_channel
+    's_channel_name': 384  # the same as token_channel
+    'z_channel_name': 128  # the same as token_pair_channel
+    'n_block': 24
+    'n_head': 16
+  'atom_attention_decoder':
+    _target_: src.models.components.diffusion_module.AtomAttentionDecoder
+    'in_token_channel': 768  # the same as diffusion_token_channel
+    'atom_channel': 128
+    'final_zero_init': False,
+    'atom_transformer':  # the same as that in atom_attention_encoder
+      _target_: src.models.components.diffusion_module.AtomTransformer
+      'n_query': 32
+      'n_key': 128
+      'diffusion_transformer':
+        _target_: src.models.components.diffusion_module.DiffusionTransformer
+        'a_channel_name': 128  # the same as atom_channel
+        's_channel_name': 128  # the same as atom_channel
+        'z_channel_name': 16  # the same as atom_pair_channel
+        'n_block': 3
+        'n_head': 4
+
+
+
+
 
 # compile model for faster training with pytorch 2.0
 compile: false
