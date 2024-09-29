@@ -24,34 +24,10 @@ _Suggestions are always welcome!_
 
 <br>
 
-## 📌  Introduction
+I will update the coding progress here to make it clearer.
 
-**Why you might want to use it:**
-
-✅ Save on boilerplate <br>
-Easily add new models, datasets, tasks, experiments, and train on different accelerators, like multi-GPU, TPU or SLURM clusters.
-
-✅ Education <br>
-Thoroughly commented. You can use this repo as a learning resource.
-
-✅ Reusability <br>
-Collection of useful MLOps tools, configs, and code snippets. You can use this repo as a reference for various utilities.
-
-**Why you might not want to use it:**
-
-❌ Things break from time to time <br>
-Lightning and Hydra are still evolving and integrate many libraries, which means sometimes things break. For the list of currently known problems visit [this page](https://github.com/ashleve/lightning-hydra-template/labels/bug).
-
-❌ Not adjusted for data engineering <br>
-Template is not really adjusted for building data pipelines that depend on each other. It's more efficient to use it for model prototyping on ready-to-use data.
-
-❌ Overfitted to simple use case <br>
-The configuration setup is built with simple lightning training in mind. You might need to put some effort to adjust it for different use cases, e.g. lightning fabric.
-
-❌ Might not support your workflow <br>
-For example, you can't resume hydra-based multirun or hyperparameter search.
-
-> **Note**: _Keep in mind this is unofficial community project._
+* `24-9-29` Complete the test on diffusion module, fill the configs for it.
+* 
 
 <br>
 
