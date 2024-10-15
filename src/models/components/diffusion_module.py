@@ -205,14 +205,9 @@ class DiffusionModule(nn.Module):
 
     def forward(self, representations, batch):
         """forward"""
-        if self.training:
-            # Network prediction for just one step (given x_noisy and t_hat)
-            x_noisy = batch['x_noisy']
-            t_hat = batch['t_hat']
-            return self._forward_model(x_noisy, t_hat, batch, representations)
-        else:
-            # Full step diffusion sampling
-            return self.sample_diffusion(representations, batch)
+        x_noisy = batch['x_noisy']
+        t_hat = batch['t_hat']
+        return self._forward_model(x_noisy, t_hat, batch, representations)
 
     def sample_diffusion(self, representations, batch, step_num=200):
         """

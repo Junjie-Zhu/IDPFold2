@@ -1,9 +1,9 @@
-_target_: src.models.mnist_module.IDPFold_multimer
+_target_: src.models.mnist_module.idpfold_multimer
 
 optimizer:
   _target_: torch.optim.Adam
   _partial_: true
-  lr: 0.001
+  lr: 1e-4
   weight_decay: 0.0
 
 scheduler:
@@ -64,10 +64,6 @@ net:
         'z_channel_name': 16  # the same as atom_pair_channel
         'n_block': 3
         'n_head': 4
-
-
-
-
 
 # compile model for faster training with pytorch 2.0
 compile: false

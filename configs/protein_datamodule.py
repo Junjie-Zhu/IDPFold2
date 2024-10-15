@@ -1,15 +1,68 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List, Sequence
 
 import torch
-from lightning import LightningDataModule
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
-from torchvision.datasets import MNIST
-from torchvision.transforms import transforms
+from lightning import LightningDataModule
+from hydra.utils import instantiate
 
 
-class MNISTDataModule(LightningDataModule):
-    """`LightningDataModule` for the MNIST dataset.
+class BatchTensorConverter:
+    """Callable to convert an unprocessed (labels + strings) batch to a
+    processed (labels + tensor) batch.
+    """
+    def __init__(self, target_keys: Optional[List] = None):
+        self.target_keys = target_keys
+    
+    def __call__(self, raw_batch: Sequence[Dict[str, object]]):
+        B = len(raw_batch)
+        # Only do for Tensor
+        target_keys = self.target_keys \
+            if self.target_keys is not None else [k for k,v in raw_batch[0].items() if torch.is_tensor(v)]
+        # Non-array, for example string, int
+        non_array_keys = [k for k in raw_batch[0] if k not in target_keys]
+        collated_batch = dict()
+        for k in target_keys:
+            collated_batch[k] = self.collate_dense_tensors([d[k] for d in raw_batch], pad_v=0.0)
+        for k in non_array_keys:    # return non-array keys as is
+            collated_batch[k] = [d[k] for d in raw_batch]
+        return collated_batch
 
+    @staticmethod
+    def collate_dense_tensors(samples: Sequence, pad_v: float = 0.0):
+        """
+        Takes a list of tensors with the following dimensions:
+            [(d_11,       ...,           d_1K),
+             (d_21,       ...,           d_2K),
+             ...,
+             (d_N1,       ...,           d_NK)]
+        and stack + pads them into a single tensor of:
+        (N, max_i=1,N { d_i1 }, ..., max_i=1,N {diK})
+        """
+        if len(samples) == 0:
+            return torch.Tensor()
+        if len(set(x.dim() for x in samples)) != 1:
+            raise RuntimeError(
+                f"Samples has varying dimensions: {[x.dim() for x in samples]}"
+            )
+        (device,) = tuple(set(x.device for x in samples))  # assumes all on same device
+        max_shape = [max(lst) for lst in zip(*[x.shape for x in samples])]
+        result = torch.empty(
+            len(samples), *max_shape, dtype=samples[0].dtype, device=device
+        )
+        result.fill_(pad_v)
+        for i in range(len(samples)):
+            result_i = result[i]
+            t = samples[i]
+            result_i[tuple(slice(0, k) for k in t.shape)] = t
+        return result
+
+
+class ProteinDataModule(LightningDataModule):
+    """`LightningDataModule` for a single protein dataset,
+        for pretrain or finetune purpose.
+
+    ### To be revised.### 
+    
     The MNIST database of handwritten digits has a training set of 60,000 examples, and a test set of 10,000 examples.
     It is a subset of a larger set available from NIST. The digits have been size-normalized and centered in a
     fixed-size image. The original black and white images from NIST were size normalized to fit in a 20x20 pixel box
@@ -54,11 +107,13 @@ class MNISTDataModule(LightningDataModule):
 
     def __init__(
         self,
-        data_dir: str = "data/",
-        train_val_test_split: Tuple[int, int, int] = (55_000, 5_000, 10_000),
+        dataset: torch.utils.data.Dataset,
         batch_size: int = 64,
+        generator_seed: int = 42,
+        train_val_split: Tuple[float, float] = (0.95, 0.05),
         num_workers: int = 0,
         pin_memory: bool = False,
+        shuffle: bool = False,
     ) -> None:
         """Initialize a `MNISTDataModule`.
 
@@ -73,25 +128,14 @@ class MNISTDataModule(LightningDataModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
-
-        # data transformations
-        self.transforms = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-        )
-
+        
+        self.dataset = dataset
+        
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
         self.data_test: Optional[Dataset] = None
 
         self.batch_size_per_device = batch_size
-
-    @property
-    def num_classes(self) -> int:
-        """Get the number of classes.
-
-        :return: The number of MNIST classes (10).
-        """
-        return 10
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -101,8 +145,7 @@ class MNISTDataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        MNIST(self.hparams.data_dir, train=True, download=True)
-        MNIST(self.hparams.data_dir, train=False, download=True)
+        pass
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -123,54 +166,55 @@ class MNISTDataModule(LightningDataModule):
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
         # load and split datasets only if not loaded already
-        if not self.data_train and not self.data_val and not self.data_test:
-            trainset = MNIST(self.hparams.data_dir, train=True, transform=self.transforms)
-            testset = MNIST(self.hparams.data_dir, train=False, transform=self.transforms)
-            dataset = ConcatDataset(datasets=[trainset, testset])
-            self.data_train, self.data_val, self.data_test = random_split(
-                dataset=dataset,
-                lengths=self.hparams.train_val_test_split,
-                generator=torch.Generator().manual_seed(42),
+        if stage == 'fit' and not self.data_train and not self.data_val:
+            # dataset = ConcatDataset(datasets=[trainset, testset])
+            self.data_train, self.data_val = random_split(
+                dataset=self.dataset,
+                lengths=self.hparams.train_val_split,
+                generator=torch.Generator().manual_seed(self.hparams.generator_seed),
             )
+        elif stage in ('predict', 'test'):
+            self.data_test = self.dataset
+        else:
+            raise NotImplementedError(f"Stage {stage} not implemented.")
+        
+    def _dataloader_template(self, dataset: Dataset[Any]) -> DataLoader[Any]:
+        """Create a dataloader from a dataset.
 
+        :param dataset: The dataset.
+        :return: The dataloader.
+        """
+        batch_collator = BatchTensorConverter()    # list of dicts -> dict of tensors
+        return DataLoader(
+            dataset=dataset,
+            collate_fn=batch_collator,
+            batch_size=self.batch_size_per_device,
+            num_workers=self.hparams.num_workers,
+            pin_memory=self.hparams.pin_memory,
+            shuffle=self.hparams.shuffle,
+        )
+    
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
 
         :return: The train dataloader.
         """
-        return DataLoader(
-            dataset=self.data_train,
-            batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_workers,
-            pin_memory=self.hparams.pin_memory,
-            shuffle=True,
-        )
+        return self._dataloader_template(self.data_train)
+           
 
     def val_dataloader(self) -> DataLoader[Any]:
         """Create and return the validation dataloader.
 
         :return: The validation dataloader.
         """
-        return DataLoader(
-            dataset=self.data_val,
-            batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_workers,
-            pin_memory=self.hparams.pin_memory,
-            shuffle=False,
-        )
+        return self._dataloader_template(self.data_val)
 
     def test_dataloader(self) -> DataLoader[Any]:
         """Create and return the test dataloader.
 
         :return: The test dataloader.
         """
-        return DataLoader(
-            dataset=self.data_test,
-            batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_workers,
-            pin_memory=self.hparams.pin_memory,
-            shuffle=False,
-        )
+        return self._dataloader_template(self.data_test)
 
     def teardown(self, stage: Optional[str] = None) -> None:
         """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,
@@ -196,6 +240,3 @@ class MNISTDataModule(LightningDataModule):
         """
         pass
 
-
-if __name__ == "__main__":
-    _ = MNISTDataModule()
