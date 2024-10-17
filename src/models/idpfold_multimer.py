@@ -5,9 +5,11 @@ from copy import deepcopy
 
 import numpy as np
 import torch
+from PIL.ImageOps import scale
 from lightning import LightningModule
 from torchmetrics import MinMetric, MeanMetric
 
+from src.models.components.transport import R3Diffuser
 from src.models.loss import ScoreMatchingLoss
 from src.common.rigid_utils import Rigid
 from src.common.all_atom import compute_backbone
@@ -52,6 +54,7 @@ class IDPFoldMultimer(LightningModule):
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
+        diffuser: R3Diffuser,
         loss: Dict[str, Any],
         compile: bool,
         inference: Optional[Dict[str, Any]] = None,
@@ -70,6 +73,7 @@ class IDPFoldMultimer(LightningModule):
 
         # network and diffusion module
         self.net = net
+        self.diffuser = diffuser
         
         # loss function
         self.loss = ScoreMatchingLoss(config=self.hparams.loss)
@@ -99,7 +103,7 @@ class IDPFoldMultimer(LightningModule):
         self.val_loss_best.reset()
 
     def model_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], training: Optional[bool] = True
+        self, representations, batch, training: Optional[bool] = True
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
@@ -111,38 +115,40 @@ class IDPFoldMultimer(LightningModule):
             - A tensor of target labels.
         """
         # preprocess by augmenting additional feats
-        rigids_0 = Rigid.from_tensor_4x4(batch['rigidgroups_gt_frames'][..., 0, :, :])
-        batch_size = rigids_0.shape[0]
-        t = (1.0 - self.diffuser.min_t) * torch.rand(batch_size, device=rigids_0.device) + self.diffuser.min_t
+        x_0 = batch['target_structure']
+        batch_size = x_0.shape[0]
+        t = (1.0 - self.diffuser.min_t) * torch.rand(batch_size, device=x_0.device) + self.diffuser.min_t
         perturb_feats = self.diffuser.forward_marginal(
-            rigids_0=rigids_0,
+            x_0=x_0,
             t=t,
             diffuse_mask=None,
-            as_tensor_7=True,
         )
         patch_feats = {
             't': t,
-            'rigids_0': rigids_0,
+            'x_0': x_0,
         }
         batch.update({**perturb_feats, **patch_feats})
         
         # probably add self-conditioning (recycle once)
         if self.net.embedder.self_conditioning and random() > 0.5:
             with torch.no_grad():
-                batch['sc_ca_t'] = self.net(batch, as_tensor_7=True)['rigids'][..., 4:]
+                batch['sc_coords'] = self.net(batch)  # b, n, 3
 
         # feedforward
         out = self.net(batch)
         
         # postprocess by add score computation
         pred_scores = self.diffuser.score(
-            rigids_0=out['rigids'],
-            rigids_t=Rigid.from_tensor_7(batch['rigids_t']),
+            x_0=batch['x_0'],
+            x_t=out,
             t=t,
+            scale=True,
             mask=batch['residue_mask'],
         )
         out.update(pred_scores)
-        
+
+        ##### revised to this line
+
         # calculate losses
         loss, loss_bd = self.loss(out, batch, _return_breakdown=True)
         return loss, loss_bd
@@ -209,161 +215,11 @@ class IDPFoldMultimer(LightningModule):
         pass
 
     def predict_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int,
+        self, representations, batch
     ) -> str:
-        """Perform a prediction step on a batch of data from the dataloader.
-        
-        This prediction step will sample `n_replica` copies from the forward-backward process,
-            repeated for each delta-T in the range of [delta_min, delta_max] with step size
-            `delta_step`. If `backward_only` is set to True, then only backward process will be
-            performed, and `n_replica` will be multiplied by the number of delta-Ts.
+        coordinates = self.net.sample_diffusion(representations, batch)
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
-            labels.
-        :param batch_idx: The index of the current batch.
-        """
-        # extract hyperparams for inference
-        n_replica = self.hparams.inference.n_replica
-        replica_per_batch = self.hparams.inference.replica_per_batch
-        delta_range = np.arange(
-            self.hparams.inference.delta_min,
-            self.hparams.inference.delta_max + 1e-5,
-            self.hparams.inference.delta_step
-        )
-        delta_range = np.around(delta_range, decimals=2)  # up to 2 decimal places
-        num_timesteps = self.hparams.inference.num_timesteps
-        noise_scale = self.hparams.inference.noise_scale
-        probability_flow = self.hparams.inference.probability_flow
-        self_conditioning = self.hparams.inference.self_conditioning and self.net.embedder.self_conditioning
-        min_t = self.hparams.inference.min_t
-        output_dir = self.hparams.inference.output_dir
-        backward_only = self.hparams.inference.backward_only
-        # if backward_only, then only perform backward process (vanilla sampling of diffusion)
-        if backward_only:
-            n_replica *= len(delta_range)
-            delta_range = [-1.0]
-        
-        assert batch['aatype'].shape[0] == 1, "Batch size must be 1 for correct inference."
-        
-        # get extra features of the current protein
-        accession_code = batch['accession_code'][0]
-        extra = {
-            'aatype': batch['aatype'][0].detach().cpu().numpy(),
-            'chain_index': batch['chain_index'][0].detach().cpu().numpy(),
-            'residue_index': batch['residue_index'][0].detach().cpu().numpy(),
-        }
-        
-        # define sampling subroutine
-        def forward_backward(rigids_0: Rigid, t_delta: float):
-            # if t_delta <= 0 (invalid), then perform backward only (from t=T)
-            T = t_delta if t_delta > 0 else 1.0
-            
-            batch_size, device = rigids_0.shape[0], rigids_0.device
-            _num_timesteps = int(float(num_timesteps) * T)
-            dt = 1.0 / _num_timesteps
-            ts = np.linspace(min_t, T, _num_timesteps)[::-1] # reverse in time
-            
-            _feats = deepcopy({
-                k: v.repeat(batch_size, *(1,)*(v.ndim-1))
-                for k,v in batch.items() if k in ('aatype', 'residue_mask', 'fixed_mask', 'residue_idx', 'torsion_angles_sin_cos')
-            }) 
-            if t_delta > 0:
-                rigids_t = self.diffuser.forward_marginal(
-                    rigids_0=rigids_0,
-                    t=t_delta * torch.ones(batch_size, device=device),
-                    diffuse_mask=_feats['residue_mask'],
-                    as_tensor_7=True,
-                )['rigids_t']
-            else:
-                rigids_t = self.diffuser.sample_prior(
-                    shape=rigids_0.shape,
-                    device=device,
-                    as_tensor_7=True,
-                )['rigids_t']
-            
-            _feats['rigids_t'] = rigids_t
-            
-            traj_atom37 = []
-            with torch.no_grad():
-                fixed_mask = _feats['fixed_mask'] * _feats['residue_mask']
-                diffuse_mask = (1 - _feats['fixed_mask']) * _feats['residue_mask']
-                
-                if self_conditioning:
-                    _feats['sc_ca_t'] = torch.zeros_like(rigids_t[..., 4:])
-                    _feats['t'] = ts[0] * torch.ones(batch_size, device=device)
-                    _feats['sc_ca_t'] = self.net(_feats, as_tensor_7=True)['rigids'][..., 4:]  # update self-conditioning feats
-                
-                for t in ts:
-                    _feats['t'] = t * torch.ones(batch_size, device=device)                    
-                    out = self.net(_feats, as_tensor_7=False)
-                    
-                    # compute predicted rigids
-                    if t == min_t:
-                        rigids_pred = out['rigids']
-                    else:
-                        # update self-conditioning feats
-                        if self_conditioning:
-                            _feats['sc_ca_t'] = out['rigids'].to_tensor_7()[..., 4:]
-                        # get score based on predicted rigids
-                        pred_scores = self.diffuser.score(
-                            rigids_0=out['rigids'],
-                            rigids_t=Rigid.from_tensor_7(_feats['rigids_t']),
-                            t=_feats['t'],
-                            mask=_feats['residue_mask'],
-                        )
-                        rigids_pred = self.diffuser.reverse(
-                            rigids_t=Rigid.from_tensor_7(_feats['rigids_t']),
-                            rot_score=pred_scores['rot_score'],
-                            trans_score=pred_scores['trans_score'],
-                            t=_feats['t'],
-                            dt=dt,
-                            diffuse_mask=diffuse_mask,
-                            center_trans=True,
-                            noise_scale=noise_scale,
-                            probability_flow=probability_flow,
-                        )   # Rigid object
-                        # update rigids_t as tensor_7
-                        _feats['rigids_t'] = rigids_pred.to_tensor_7()   
-                    
-                # compute atom37 positions
-                atom37 = compute_backbone(rigids_pred, out['psi'], aatype=_feats['aatype'])[0]
-                atom37 = atom37.detach().cpu().numpy() # (Bi, L, 37 ,3)
-                return atom37
-        
-        saved_paths = []
-        
-        # iterate over delta-Ts
-        for t_delta in delta_range:
-            gt_rigids_4x4 = batch['rigidgroups_gt_frames'][..., 0, :, :].clone()
-            n_bs = n_replica // replica_per_batch   # number of batches
-            last_bs = n_replica % replica_per_batch # last batch size
-            atom_positions = []
-            for _ in range(n_bs):
-                rigids_0 = Rigid.from_tensor_4x4(gt_rigids_4x4.repeat(replica_per_batch, *(1,)*(gt_rigids_4x4.ndim-1)))
-                traj_atom37 = forward_backward(rigids_0, t_delta)
-                atom_positions.append(traj_atom37)
-            if last_bs > 0:
-                rigids_0 = Rigid.from_tensor_4x4(gt_rigids_4x4.repeat(last_bs, *(1,)*(gt_rigids_4x4.ndim-1)))
-                traj_atom37 = forward_backward(rigids_0, t_delta)
-                atom_positions.append(traj_atom37)
-            atom_positions = np.concatenate(atom_positions, axis=0)   # (B, L, 37, 3)
-            
-            # Save atom positions to pdb.
-            t_delta_dir = os.path.join(output_dir, f"{t_delta}")
-            os.makedirs(t_delta_dir, exist_ok=True)
-            save_to = os.path.join(t_delta_dir, f"{accession_code}.pdb")
-            saved_to = atom37_to_pdb(
-                atom_positions=atom_positions,
-                save_to=save_to, 
-                **extra,
-            )
-            saved_paths.append(saved_to)
-
-        all_delta_dir = os.path.join(output_dir, "all_delta")
-        os.makedirs(all_delta_dir, exist_ok=True)
-        merge_pdbfiles(saved_paths, os.path.join(all_delta_dir, f"{accession_code}.pdb"))
-
-        return all_delta_dir
+        return coordinates
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
@@ -402,4 +258,4 @@ class IDPFoldMultimer(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = DiffusionLitModule(None, None, None, None, None)
+    _ = IDPFoldMultimer(None, None, None, None, None)

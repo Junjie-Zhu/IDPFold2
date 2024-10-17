@@ -46,7 +46,7 @@ net:
     'a_channel_name': 768  # the same as diffusion_token_channel
     's_channel_name': 384  # the same as token_channel
     'z_channel_name': 128  # the same as token_pair_channel
-    'n_block': 24
+    'n_block': 12
     'n_head': 16
   'atom_attention_decoder':
     _target_: src.models.components.diffusion_module.AtomAttentionDecoder
