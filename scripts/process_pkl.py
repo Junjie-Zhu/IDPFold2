@@ -35,22 +35,24 @@ def convert_atom_id_name(atom_id: str):
 
 
 def get_atom_features(data_object):
-    # get atom_positions according to atom_mask
-    atom_positions = data_object['atom_positions'][data_object['atom_mask']].reshape(-1, 3)
 
-    atom_mask = data_object['atom_mask']
+    atom_mask = np.array(data_object['atom_mask'], dtype=np.int64)
+
+
+    atom_positions = np.zeros([atom_mask.sum(), 3], dtype=np.float32)
     token2atom_map = np.zeros(atom_mask.sum(), dtype=np.int64)
     atom_elements = np.zeros(atom_mask.sum(), dtype=np.int32)
 
     index_start, token = 0, 0
     atom_type = []
-    for residues in atom_mask:
+    for residues, residue_positions in zip(atom_mask, data_object['atom_positions']):
         length = residues.sum()
         index_end = index_start + length
 
         token2atom_map[index_start:index_end] += token
 
         atom_index = np.where(residues)[0]
+        atom_positions[index_start:index_end] = residue_positions[atom_index]
         atom_elements[index_start:index_end] = [element_atomic_number[i] for i in atom_index]
         atom_type.extend([atom_types[i] for i in atom_index])
 
@@ -71,10 +73,18 @@ def get_atom_features(data_object):
         'ref_space_uid': atom_space_uid,
         'ref_atom_name_chars': atom_name_char,
         'ref_element': atom_elements,
-        'ref_mask': atom_mask,
+        'ref_mask': np.ones_like(atom_elements, dtype=np.int64)
     }
 
     return output_batch
 
 
+if __name__ == '__main__':
+    data_path = '../data/1zei.pkl'
 
+    data_object = read_pkl(data_path)
+
+    output_batch = get_atom_features(data_object)
+
+    for key, value in output_batch.items():
+        print(key, value.shape)
