@@ -23,7 +23,7 @@ import torch.nn.functional as F
 
 from scipy.spatial.transform import Rotation
 
-from src.models.components.embedder import EmbeddingModule
+from src.models.components.embedder import FourierEmbedding
 from src.utils.model_utils import recompute_wrapper
 
 
@@ -148,11 +148,14 @@ class DiffusionModule(nn.Module):
 
         ## network
         self.embedding_module = embedding_module
+        self.embedding_ln = nn.LayerNorm(token_channel + embedding_channel)
+        self.embedding_lin = nn.Linear(token_channel + embedding_channel, token_channel, bias=False)
+
         self.diffusion_conditioning = diffusion_conditioning
         self.atom_encoder = atom_attention_encoder
 
-        self.ln1 = nn.LayerNorm(token_channel + embedding_channel)
-        self.lin1 = nn.Linear(token_channel + embedding_channel, diffusion_token_channel, bias=False)
+        self.ln1 = nn.LayerNorm(token_channel)
+        self.lin1 = nn.Linear(token_channel, diffusion_token_channel, bias=False)
         self.diffusion_transformer = diffusion_transformer_main
 
         self.ln2 = nn.LayerNorm(diffusion_token_channel)
@@ -188,7 +191,8 @@ class DiffusionModule(nn.Module):
         # Get embeddings.
         si, zij = self.embedder(
             residue_idx=batch['residue_index'],
-            t=batch['t'],
+            t_hat=t_hat,
+            sigma_data=self.sigma_data,
             fixed_mask=seq_mask,
             self_conditioning_ca=batch['ref_pos'],
         )
@@ -196,6 +200,7 @@ class DiffusionModule(nn.Module):
         # detect if batch['seq_emb'] exists
         if 'seq_emb' in batch:
             si = torch.concat([si, batch['seq_emb']], -1)
+            si = self.embedding_lin(self.embedding_ln(si))
 
         # si, zij = self.diffusion_conditioning(
         #     t_hat, rel_pos_encoding, s_inputs, s_trunk, z_trunk, self.sigma_data)
@@ -204,7 +209,7 @@ class DiffusionModule(nn.Module):
         r_noisy = x_noisy / torch.sqrt(t_hat ** 2 + self.sigma_data ** 2)
 
         atom_token_uid = batch['ref_token2atom_idx']
-        atom_mask = torch.ones_like(atom_token_uid)
+        atom_mask = batch['ref_mask'] * (1 - batch['fixed_mask'])
         ai, ql_skip, cl_skip, p_lm_skip = self.atom_encoder(feature=batch, rl=r_noisy,
                                                             s_trunk=si, zij=zij)
 
@@ -223,15 +228,17 @@ class DiffusionModule(nn.Module):
             return x_out, r_update * atom_mask[..., None]
         return x_out
 
-    def forward(self, representations, batch):
+    def forward(self, batch):
         """forward"""
         batch_size = batch['seq_mask'].shape[0]
         noise_schedule = (self.P_mean + self.P_std * torch.randn((batch_size,), device = self.device)).exp() * self.sigma_data
         noise = torch.randn_like(batch['ref_pos']) * noise_schedule[:, None, None]
 
         x_noisy = batch['ref_pos'] + noise
-        t_hat = batch['t_hat']
-        return self._forward_model(x_noisy, t_hat, batch, representations)
+
+        gamma = self.gamma0 if noise_schedule > self.gamma_min else 0
+        t_hat = noise_schedule * (gamma + 1)
+        return self._forward_model(x_noisy, t_hat, batch)
 
     def sample_diffusion(self, batch, step_num=200):
         """
@@ -329,30 +336,6 @@ class Transition(nn.Module):
         b = self.lin2(x)
         x = self.lin3(nn.functional.silu(a) * b)
         return x
-
-
-class FourierEmbedding(nn.Module):
-    """
-    FourierEmbedding
-    """
-
-    def __init__(self, c):
-        super(FourierEmbedding, self).__init__()
-        self.w = nn.Parameter(torch.empty(c, dtype=torch.float32))
-        nn.init.normal_(self.w)
-        self.w.stop_gradient = True
-        self.b = nn.Parameter(torch.empty(c, dtype=torch.float32))
-        nn.init.normal_(self.b)
-        self.b.stop_gradient = True
-
-    def forward(self, t_hat):
-        """
-        t_hat: (B,)
-        return:
-            (B, c)
-        """
-        y = torch.cos(2 * np.pi * (t_hat[:, None] * self.w[None] + self.b[None]))
-        return y
 
 
 class DiffusionTransformer(nn.Module):

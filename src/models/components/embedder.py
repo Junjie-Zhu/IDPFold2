@@ -1,11 +1,36 @@
 import math
 from functools import partial
 
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
 
 from src.common.geo_utils import calc_distogram
+
+
+class FourierEmbedding(nn.Module):
+    """
+    FourierEmbedding
+    """
+
+    def __init__(self, c):
+        super(FourierEmbedding, self).__init__()
+        self.w = nn.Parameter(torch.empty(c, dtype=torch.float32))
+        nn.init.normal_(self.w)
+        self.w.stop_gradient = True
+        self.b = nn.Parameter(torch.empty(c, dtype=torch.float32))
+        nn.init.normal_(self.b)
+        self.b.stop_gradient = True
+
+    def forward(self, t_hat):
+        """
+        t_hat: (B,)
+        return:
+            (B, c)
+        """
+        y = torch.cos(2 * np.pi * (t_hat[:, None] * self.w[None] + self.b[None]))
+        return y
 
 
 def get_positional_embedding(indices, embedding_dim, max_len=2056):
@@ -66,6 +91,8 @@ class EmbeddingModule(nn.Module):
         node_in_dim += pos_embed_size
         edge_in_dim += pos_embed_size
 
+        self.fourier_embedding = FourierEmbedding(256)
+
         self.node_embed = nn.Sequential(
             nn.Linear(node_in_dim, node_embed_size),
             nn.ReLU(),
@@ -105,7 +132,8 @@ class EmbeddingModule(nn.Module):
     def forward(
             self,
             residue_idx,
-            t,
+            t_hat,
+            sigma_data,
             fixed_mask,
             self_conditioning_ca,
     ):
@@ -127,7 +155,7 @@ class EmbeddingModule(nn.Module):
         pair_feats = []
 
         # configure time embedding
-        t_embed = torch.tile(self.time_embed(t)[:, None, :], (1, L, 1))
+        t_embed = torch.tile(self.fourier_embedding(0.25 * torch.log(t_hat / sigma_data))[:, None, :], (1, L, 1))
         t_embed = torch.cat([t_embed, fixed_mask], dim=-1)
         node_feats.append(t_embed)
 
