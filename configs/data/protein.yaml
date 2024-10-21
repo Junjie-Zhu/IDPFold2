@@ -4,13 +4,14 @@ _target_: src.data.protein_datamodule.ProteinDataModule
 dataset:
   _target_: src.data.components.dataset.PretrainPDBDataset
   path_to_dataset: ${paths.data_path}
+  path_to_seq_embedding: ${paths.seq_embedding_path}
   metadata_filter: 
     _target_: src.data.components.dataset.MetadataFilter
     min_len: 10
     max_len: 500
   transform: 
     _target_: src.data.components.dataset.ProteinFeatureTransform
-    truncate_length: null
+    truncate_length: 384
     strip_missing_residues: true
     recenter_and_scale: true
     eps: 1e-8

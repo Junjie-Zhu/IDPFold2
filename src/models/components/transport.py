@@ -86,7 +86,12 @@ class R3Diffuser:
             x_t = apply_mask(x_t, x_0, diffuse_mask)
             score_t = apply_mask(score_t, torch.zeros_like(score_t), diffuse_mask)
 
-        return x_t, score_t, score_scaling_t
+        output = {
+            'x_t': x_t,
+            'score_t': score_t,
+            'score_scaling_t': score_scaling_t,
+        }
+        return output
 
     def score_scaling(self, t: torch.Tensor):
         return 1.0 / torch.sqrt(self.conditional_var(t))

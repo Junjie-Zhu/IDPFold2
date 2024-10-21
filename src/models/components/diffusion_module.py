@@ -15,6 +15,7 @@
 """Modules and utilities for the diffusion module."""
 
 import copy
+
 import numpy as np
 import torch
 from torch import nn
@@ -22,6 +23,7 @@ import torch.nn.functional as F
 
 from scipy.spatial.transform import Rotation
 
+from src.models.components.embedder import EmbeddingModule
 from src.utils.model_utils import recompute_wrapper
 
 
@@ -115,8 +117,10 @@ class DiffusionModule(nn.Module):
 
     def __init__(self,
                  training: bool,
+                 embedding_channel: int,
                  token_channel: int,
                  diffusion_token_channel: int,
+                 embedding_module: nn.Module,
                  diffusion_conditioning: nn.Module,
                  atom_attention_encoder: nn.Module,
                  diffusion_transformer_main: nn.Module,
@@ -138,15 +142,17 @@ class DiffusionModule(nn.Module):
         self.P_mean = -1.2
         self.P_std = 1.5
 
+        embedding_channel = embedding_channel
         token_channel = token_channel
         diffusion_token_channel = diffusion_token_channel
 
         ## network
+        self.embedding_module = embedding_module
         self.diffusion_conditioning = diffusion_conditioning
         self.atom_encoder = atom_attention_encoder
 
-        self.ln1 = nn.LayerNorm(token_channel)
-        self.lin1 = nn.Linear(token_channel, diffusion_token_channel, bias=False)
+        self.ln1 = nn.LayerNorm(token_channel + embedding_channel)
+        self.lin1 = nn.Linear(token_channel + embedding_channel, diffusion_token_channel, bias=False)
         self.diffusion_transformer = diffusion_transformer_main
 
         self.ln2 = nn.LayerNorm(diffusion_token_channel)
@@ -166,19 +172,33 @@ class DiffusionModule(nn.Module):
     def _c_out(self, t_hat):
         return self.sigma_data * t_hat / torch.sqrt(self.sigma_data ** 2 + t_hat ** 2)
 
-    def _forward_model(self, x_noisy, t_hat, batch, representations, return_r=False):
+    def _forward_model(self, x_noisy, t_hat, batch, return_r=False):
         """
         x_noisy: (B, N_atom, 3)
         t_hat: (B)
         """
-        s_inputs = representations['single_inputs']  # (B, N_token, d1)
-        s_trunk = representations['single']  # (B, N_token, d1)
-        z_trunk = representations['pair']  # (raw_batch, N_token, N_token, d2)
-        rel_pos_encoding = representations['rel_pos_encoding']  # (raw_batch, N_token, N_token, d2)
+
+        # s_inputs = representations['single_inputs']  # (B, N_token, d1)
+        # s_trunk = representations['single']  # (B, N_token, d1)
+        # z_trunk = representations['pair']  # (raw_batch, N_token, N_token, d2)
+        # rel_pos_encoding = representations['rel_pos_encoding']  # (raw_batch, N_token, N_token, d2)
         # atom_mask = batch['all_atom_pos_mask']  # (B, N_atom)
         seq_mask = batch['seq_mask']  # (B, N_token)
-        si, zij = self.diffusion_conditioning(
-            t_hat, rel_pos_encoding, s_inputs, s_trunk, z_trunk, self.sigma_data)
+
+        # Get embeddings.
+        si, zij = self.embedder(
+            residue_idx=batch['residue_index'],
+            t=batch['t'],
+            fixed_mask=seq_mask,
+            self_conditioning_ca=batch['ref_pos'],
+        )
+
+        # detect if batch['seq_emb'] exists
+        if 'seq_emb' in batch:
+            si = torch.concat([si, batch['seq_emb']], -1)
+
+        # si, zij = self.diffusion_conditioning(
+        #     t_hat, rel_pos_encoding, s_inputs, s_trunk, z_trunk, self.sigma_data)
 
         t_hat = t_hat.unsqueeze(1).unsqueeze(2)
         r_noisy = x_noisy / torch.sqrt(t_hat ** 2 + self.sigma_data ** 2)
@@ -186,7 +206,7 @@ class DiffusionModule(nn.Module):
         atom_token_uid = batch['ref_token2atom_idx']
         atom_mask = torch.ones_like(atom_token_uid)
         ai, ql_skip, cl_skip, p_lm_skip = self.atom_encoder(feature=batch, rl=r_noisy,
-                                                            s_trunk=s_trunk, zij=zij)
+                                                            s_trunk=si, zij=zij)
 
         ai += self.lin1(self.ln1(si))
         beta = (1 - seq_mask[:, :, None] * seq_mask[:, None]) * (-1e8)

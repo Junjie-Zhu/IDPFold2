@@ -2,7 +2,8 @@
 import os
 import pickle
 from pathlib import Path
-from glob import glob 
+from glob import glob
+from random import random
 from typing import Optional, Sequence, List, Union
 from functools import lru_cache
 import tree
@@ -21,6 +22,74 @@ DTYPE_MAPPING = {
     'atom_positions': torch.double,
     'atom_mask': torch.double,
 }
+atom_types = [
+    'N', 'CA', 'C', 'CB', 'O', 'CG', 'CG1', 'CG2', 'OG', 'OG1', 'SG', 'CD',
+    'CD1', 'CD2', 'ND1', 'ND2', 'OD1', 'OD2', 'SD', 'CE', 'CE1', 'CE2', 'CE3',
+    'NE', 'NE1', 'NE2', 'OE1', 'OE2', 'CH2', 'NH1', 'NH2', 'OH', 'CZ', 'CZ2',
+    'CZ3', 'NZ', 'OXT'
+]
+# define the element atomic number for each atom type
+element_atomic_number = [
+    7, 6, 6, 6, 8, 6, 6, 6, 8, 8, 16, 6,
+    6, 6, 7, 7, 8, 8, 16, 6, 6, 6, 6,
+    7, 7, 7, 8, 8, 6, 7, 7, 8, 6, 6,
+    6, 7, 8
+]
+
+
+def convert_atom_id_name(atom_id: str):
+  """
+    Converts unique atom_id names to integer of atom_name. need to be padded to length 4.
+    Each character is encoded as ord(c) - 32
+  """
+  atom_id_pad = atom_id.ljust(4, ' ')
+  assert len(atom_id_pad) == 4
+  return [ord(c) - 32 for c in atom_id_pad]
+
+
+def get_atom_features(data_object):
+
+    atom_mask = np.array(data_object['atom_mask'], dtype=np.int64)
+
+
+    atom_positions = np.zeros([atom_mask.sum(), 3], dtype=np.float32)
+    token2atom_map = np.zeros(atom_mask.sum(), dtype=np.int64)
+    atom_elements = np.zeros(atom_mask.sum(), dtype=np.int32)
+
+    index_start, token = 0, 0
+    atom_type = []
+    for residues, residue_positions in zip(atom_mask, data_object['atom_positions']):
+        length = residues.sum()
+        index_end = index_start + length
+
+        token2atom_map[index_start:index_end] += token
+
+        atom_index = np.where(residues)[0]
+        atom_positions[index_start:index_end] = residue_positions[atom_index]
+        atom_elements[index_start:index_end] = [element_atomic_number[i] for i in atom_index]
+        atom_type.extend([atom_types[i] for i in atom_index])
+
+        index_start = index_end
+        token += 1
+
+    atom_space_uid = token2atom_map
+    atom_name_char = np.array([convert_atom_id_name(atom_id) for atom_id in atom_type], dtype=np.int32)
+
+    output_batch = {
+        'ref_pos': atom_positions,
+        'ref_token2atom_idx': token2atom_map,
+        'all_atom_pos_mask': np.ones_like(atom_positions[:, 0]).squeeze(),
+
+        'residue_index': data_object['residue_index'],
+        'seq_mask': np.ones_like(data_object['residue_index']),
+
+        'ref_space_uid': atom_space_uid,
+        'ref_atom_name_chars': atom_name_char,
+        'ref_element': atom_elements,
+        'ref_mask': np.ones_like(atom_elements, dtype=np.int64)
+    }
+
+    return output_batch
 
 
 class ProteinFeatureTransform:
@@ -61,8 +130,12 @@ class ProteinFeatureTransform:
         
         # Map to torch Tensor
         chain_feats = self.map_to_tensors(chain_feats)
+
+        # transform to all-atom features
+        chain_feats = get_atom_features(chain_feats)
+
         # Add extra features from AF2 
-        chain_feats = self.protein_data_transform(chain_feats)
+        # chain_feats = self.protein_data_transform(chain_feats)
         
         # ** refer to line 170 in pdb_data_loader.py **
         return chain_feats
@@ -282,7 +355,7 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
                     'seq_emb': embed_dict['representations'][33].float(),
                 } # 33 is for ESM650M
             )
-        
+
         data_object['accession_code'] =  accession_code
         return data_object  # dict of arrays
 
