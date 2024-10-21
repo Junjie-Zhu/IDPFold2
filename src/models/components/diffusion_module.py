@@ -225,16 +225,20 @@ class DiffusionModule(nn.Module):
 
     def forward(self, representations, batch):
         """forward"""
-        x_noisy = batch['x_noisy']
+        batch_size = batch['seq_mask'].shape[0]
+        noise_schedule = (self.P_mean + self.P_std * torch.randn((batch_size,), device = self.device)).exp() * self.sigma_data
+        noise = torch.randn_like(batch['ref_pos']) * noise_schedule[:, None, None]
+
+        x_noisy = batch['ref_pos'] + noise
         t_hat = batch['t_hat']
         return self._forward_model(x_noisy, t_hat, batch, representations)
 
-    def sample_diffusion(self, representations, batch, step_num=200):
+    def sample_diffusion(self, batch, step_num=200):
         """
         sample_diffusion
         """
-        single_act = representations['single']  # (B, N, d1)
-        atom_mask = batch['all_atom_pos_mask']
+
+        atom_mask = batch['ref_mask']
         B, N_atom = atom_mask.shape[:2]
         c_list = self._noise_schedule(step_num)
         x = c_list[0] * torch.normal(0., 1., size=[B, N_atom, 3])
@@ -247,9 +251,10 @@ class DiffusionModule(nn.Module):
             t_hat = c_tau_1 * (gamma + 1)
             xi = self.lambda_ * torch.sqrt(t_hat ** 2 - c_tau_1 ** 2) * torch.normal(0., 1., size=[B, N_atom, 3])
             x_noisy = x + xi.to(x.device)
+            batch['ref_pos'] = x_noisy
             x_denoised = self._forward_model(x_noisy,
                                              torch.tile(t_hat, [B]).to(x_noisy.device),
-                                             batch, representations)
+                                             batch)
             delta = (x_noisy - x_denoised) / t_hat
             dt = c_tau - t_hat
             x = x_noisy + self.eta * dt * delta
