@@ -1,117 +1,29 @@
 <div align="center">
 
-# Lightning-Hydra-Template
+# AI2PSE | Atomic Inpainting for Protein Structures and Ensembles
 
 [![python](https://img.shields.io/badge/-Python_3.8_%7C_3.9_%7C_3.10-blue?logo=python&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![pytorch](https://img.shields.io/badge/PyTorch_2.0+-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/get-started/locally/)
 [![lightning](https://img.shields.io/badge/-Lightning_2.0+-792ee5?logo=pytorchlightning&logoColor=white)](https://pytorchlightning.ai/)
-[![hydra](https://img.shields.io/badge/Config-Hydra_1.3-89b8cd)](https://hydra.cc/)
-[![black](https://img.shields.io/badge/Code%20Style-Black-black.svg?labelColor=gray)](https://black.readthedocs.io/en/stable/)
-[![isort](https://img.shields.io/badge/%20imports-isort-%231674b1?style=flat&labelColor=ef8336)](https://pycqa.github.io/isort/) <br>
-[![tests](https://github.com/ashleve/lightning-hydra-template/actions/workflows/test.yml/badge.svg)](https://github.com/ashleve/lightning-hydra-template/actions/workflows/test.yml)
-[![code-quality](https://github.com/ashleve/lightning-hydra-template/actions/workflows/code-quality-main.yaml/badge.svg)](https://github.com/ashleve/lightning-hydra-template/actions/workflows/code-quality-main.yaml)
-[![codecov](https://codecov.io/gh/ashleve/lightning-hydra-template/branch/main/graph/badge.svg)](https://codecov.io/gh/ashleve/lightning-hydra-template) <br>
-[![license](https://img.shields.io/badge/License-MIT-green.svg?labelColor=gray)](https://github.com/ashleve/lightning-hydra-template#license)
-[![PRs](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/ashleve/lightning-hydra-template/pulls)
-[![contributors](https://img.shields.io/github/contributors/ashleve/lightning-hydra-template.svg)](https://github.com/ashleve/lightning-hydra-template/graphs/contributors)
 
-A clean template to kickstart your deep learning project 🚀⚡🔥<br>
-Click on [<kbd>Use this template</kbd>](https://github.com/ashleve/lightning-hydra-template/generate) to initialize new repository.
-
-_Suggestions are always welcome!_
+_In Developing_
 
 </div>
 
-<br>
+## Main Idea
 
-I will update the coding progress here to make it clearer.
+AlphaFold3 has revealed the potential of direct prediction of all-atom protein structures. However, running AlphaFold requires extensive computations and database searching. Nevertheless, AlphaFold struggled in predicting the dynamic structure of loops and disordered regions.
 
-* `24-9-29` Complete the test on diffusion module, fill the configs for it.
-* 
+In this project, we utilized the atom-level diffusion framework raised by AlphaFold3 and construct AI2PSE for generating and inpainting protein local dynamics. By training the model in a self-supervised manner, AI2PSE is expected to realize the following tasks:
 
-<br>
+- <b>Protein Ensemble Prediction:</b> Conditioning on protein sequence, predicting the conformation ensemble of target protein
+- <b>CG2AA:</b> Conditioning on protein sequence and coarse-grained structure (e.g., only CA or backbone atoms), predicting the atom-level structure of target protein
+- <b>Residue-level Inpainting:</b> Conditioning on protein sequence and partially masked structure, inpainting the missing residues
+- <b>More functions to be added...</b>
 
-## Main Technologies
+<hr>
 
-[PyTorch Lightning](https://github.com/PyTorchLightning/pytorch-lightning) - a lightweight PyTorch wrapper for high-performance AI research. Think of it as a framework for organizing your PyTorch code.
-
-[Hydra](https://github.com/facebookresearch/hydra) - a framework for elegantly configuring complex applications. The key feature is the ability to dynamically create a hierarchical configuration by composition and override it through config files and the command line.
-
-<br>
-
-## Main Ideas
-
-- [**Rapid Experimentation**](#your-superpowers): thanks to hydra command line superpowers
-- [**Minimal Boilerplate**](#how-it-works): thanks to automating pipelines with config instantiation
-- [**Main Configs**](#main-config): allow you to specify default training configuration
-- [**Experiment Configs**](#experiment-config): allow you to override chosen hyperparameters and version control experiments
-- [**Workflow**](#workflow): comes down to 4 simple steps
-- [**Experiment Tracking**](#experiment-tracking): Tensorboard, W&B, Neptune, Comet, MLFlow and CSVLogger
-- [**Logs**](#logs): all logs (checkpoints, configs, etc.) are stored in a dynamically generated folder structure
-- [**Hyperparameter Search**](#hyperparameter-search): simple search is effortless with Hydra plugins like Optuna Sweeper
-- [**Tests**](#tests): generic, easy-to-adapt smoke tests for speeding up the development
-- [**Continuous Integration**](#continuous-integration): automatically test and lint your repo with Github Actions
-- [**Best Practices**](#best-practices): a couple of recommended tools, practices and standards
-
-<br>
-
-## Project Structure
-
-The directory structure of new project looks like this:
-
-```
-├── .github                   <- Github Actions workflows
-│
-├── configs                   <- Hydra configs
-│   ├── callbacks                <- Callbacks configs
-│   ├── data                     <- Data configs
-│   ├── debug                    <- Debugging configs
-│   ├── experiment               <- Experiment configs
-│   ├── extras                   <- Extra utilities configs
-│   ├── hparams_search           <- Hyperparameter search configs
-│   ├── hydra                    <- Hydra configs
-│   ├── local                    <- Local configs
-│   ├── logger                   <- Logger configs
-│   ├── model                    <- Model configs
-│   ├── paths                    <- Project paths configs
-│   ├── trainer                  <- Trainer configs
-│   │
-│   ├── eval.yaml             <- Main config for evaluation
-│   └── train.yaml            <- Main config for training
-│
-├── data                   <- Project data
-│
-├── logs                   <- Logs generated by hydra and lightning loggers
-│
-├── notebooks              <- Jupyter notebooks. Naming convention is a number (for ordering),
-│                             the creator's initials, and a short `-` delimited description,
-│                             e.g. `1.0-jqp-initial-data-exploration.ipynb`.
-│
-├── scripts                <- Shell scripts
-│
-├── src                    <- Source code
-│   ├── data                     <- Data scripts
-│   ├── models                   <- Model scripts
-│   ├── utils                    <- Utility scripts
-│   │
-│   ├── eval.py                  <- Run evaluation
-│   └── train.py                 <- Run training
-│
-├── tests                  <- Tests of any kind
-│
-├── .env.example              <- Example of file for storing private environment variables
-├── .gitignore                <- List of files ignored by git
-├── .pre-commit-config.yaml   <- Configuration of pre-commit hooks for code formatting
-├── .project-root             <- File for inferring the position of project root directory
-├── environment.yaml          <- File for installing conda environment
-├── Makefile                  <- Makefile with commands like `make train` or `make test`
-├── pyproject.toml            <- Configuration options for testing and linting
-├── requirements.txt          <- File for installing python dependencies
-├── setup.py                  <- File for installing project as a package
-└── README.md
-```
-
-<br>
+The following content is to be updated...
 
 ## 🚀  Quickstart
 
