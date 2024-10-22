@@ -10,10 +10,8 @@ from lightning import LightningModule
 from torchmetrics import MinMetric, MeanMetric
 
 from src.models.components.transport import R3Diffuser
-from src.models.loss import ScoreMatchingLoss
-from src.common.rigid_utils import Rigid
-from src.common.all_atom import compute_backbone
-from src.common.pdb_utils import atom37_to_pdb, merge_pdbfiles
+from src.models.loss import weighted_MSE_loss
+
 
 
 class IDPFoldMultimer(LightningModule):
@@ -74,9 +72,6 @@ class IDPFoldMultimer(LightningModule):
         # network and diffusion module
         self.net = net
         self.diffuser = diffuser
-        
-        # loss function
-        self.loss = ScoreMatchingLoss(config=self.hparams.loss)
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
@@ -132,8 +127,8 @@ class IDPFoldMultimer(LightningModule):
         out = self.net(batch)
 
         # calculate losses
-        loss, loss_bd = self.loss(out, batch, _return_breakdown=True)
-        return loss, loss_bd
+        loss = weighted_MSE_loss(out, batch['ref_pos'], batch['ref_mask'] * (1 - batch['fixed_mask']))
+        return loss
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -145,15 +140,11 @@ class IDPFoldMultimer(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
-        loss, loss_bd = self.model_step(batch)
+        loss = self.model_step(batch)
 
         # update and log metrics
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        
-        for k,v in loss_bd.items():
-            if k == 'loss': continue
-            self.log(f"train/{k}", v, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         
         # return loss or backpropagation will fail
         return loss

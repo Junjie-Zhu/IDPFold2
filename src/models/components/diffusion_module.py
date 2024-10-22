@@ -211,7 +211,7 @@ class DiffusionModule(nn.Module):
         atom_token_uid = batch['ref_token2atom_idx']
         atom_mask = batch['ref_mask'] * (1 - batch['fixed_mask'])
         ai, ql_skip, cl_skip, p_lm_skip = self.atom_encoder(feature=batch, rl=r_noisy,
-                                                            s_trunk=si, zij=zij)
+                                                            s_trunk=si, zij=zij, atom_mask=atom_mask)
 
         ai += self.lin1(self.ln1(si))
         beta = (1 - seq_mask[:, :, None] * seq_mask[:, None]) * (-1e8)
@@ -567,7 +567,7 @@ class AtomAttentionEncoder(nn.Module):
         self.ap_util = AtomPairUtil()
         self.dense = use_dense_mode
 
-        f_dim = 3 + 1 + 1 + 128 + 4 * 64
+        f_dim = 3 + 1 + 128 + 4 * 64
         self.lin_atom_meta_to_cond_feat = \
             nn.Linear(f_dim, atom_channel, bias=False)
         self.lin_pos_offset_to_apair = \
@@ -613,7 +613,7 @@ class AtomAttentionEncoder(nn.Module):
         self.lin_atom_to_token = \
             nn.Linear(atom_channel, out_token_channel, bias=False)
 
-    def forward(self, feature, rl, s_trunk, zij):
+    def forward(self, feature, rl, s_trunk, zij, atom_mask):
         """
         Args:
         - rl:         [B, M, 3]
@@ -639,21 +639,18 @@ class AtomAttentionEncoder(nn.Module):
             diff_batch_size = rl.shape[0] / zij.shape[0]  # B/b
 
         atom_token_uid = feature['ref_token2atom_idx']  # [B,M]
-        atom_mask = torch.ones_like(atom_token_uid, dtype=torch.long)  # [B,M]
 
         # create teh atom single conditioning: embed per-atom meta data
         f_ref_element = F.one_hot(feature['ref_element'], num_classes=128)  # (B, M, 128)
         f_ref_pos = feature['ref_pos']  # (B, M, 3)
         f_ref_space_uid = feature['ref_space_uid']  # (B, M)
-        f_ref_charge = feature['ref_charge'].unsqueeze(-1).type(f_ref_pos.dtype)  # (B, M, 1)
-        f_ref_mask = feature['ref_mask'].unsqueeze(-1).type(f_ref_pos.dtype)  # (B, M, 1)
         f_atom_name_chars = F.one_hot(
             feature['ref_atom_name_chars'], num_classes=64)  # (B, M, 4, 64)
         f_atom_name_chars = f_atom_name_chars.reshape(
             [f_atom_name_chars.shape[0], f_atom_name_chars.shape[1], 4 * 64])  # (B, M, 4*64)
         atom_feat_concat = torch.concat(
-            [f_ref_pos, f_ref_charge, f_ref_mask, f_ref_element, f_atom_name_chars],
-            dim=-1) * f_ref_mask
+            [f_ref_pos, atom_mask.unsqueeze(-1), f_ref_element, f_atom_name_chars],
+            dim=-1) * atom_mask.unsqueeze(-1)
 
         cl = self.lin_atom_meta_to_cond_feat(atom_feat_concat)  # (B, M, c_a)
 
@@ -675,7 +672,6 @@ class AtomAttentionEncoder(nn.Module):
         ql = cl  # (B, M, c_a)
 
         # if provided, add trunk embedding and noisy positions
-        atom_mask = atom_mask.type(ql.dtype)
         if rl is not None:
             # convert s_trunk_tok_i to s_trunk_atom_l
             s_trunk_atom = seq_to_atom_feat(s_trunk, atom_token_uid, atom_mask)  # (B, M, c_s)
