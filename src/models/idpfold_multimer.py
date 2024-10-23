@@ -52,8 +52,6 @@ class IDPFoldMultimer(LightningModule):
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
-        diffuser: R3Diffuser,
-        loss: Dict[str, Any],
         compile: bool,
         inference: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -71,7 +69,6 @@ class IDPFoldMultimer(LightningModule):
 
         # network and diffusion module
         self.net = net
-        self.diffuser = diffuser
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
@@ -111,15 +108,14 @@ class IDPFoldMultimer(LightningModule):
         """
 
         fixed_mask = torch.zeros_like(batch['ref_mask'], dtype=torch.int64)
-        if random() > 0.5:
-            # randomly mask 20% of the atoms
-            mask_idx = torch.randperm(batch['ref_mask'].sum())[:int(batch['ref_mask'].sum() * 0.2)]
-            fixed_mask[mask_idx] = 1
+        # randomly mask 20% of the atoms
+        mask_idx = torch.randperm(batch['ref_mask'].sum())[:int(batch['ref_mask'].sum() * 0.2)]
+        fixed_mask[mask_idx] = 1
 
         batch['fixed_mask'] = fixed_mask
 
         # probably add self-conditioning (recycle once)
-        if self.net.embedder.self_conditioning and random() > 0.5:
+        if self.net.embedding_module.self_conditioning and random() > 0.5:
             with torch.no_grad():
                 batch['ref_pos'] = self.net(batch)
 
@@ -160,7 +156,7 @@ class IDPFoldMultimer(LightningModule):
             labels.
         :param batch_idx: The index of the current batch.
         """
-        loss, loss_bd = self.model_step(batch, training=False)
+        loss = self.model_step(batch, training=False)
 
         # update and log metrics
         self.val_loss(loss) # update

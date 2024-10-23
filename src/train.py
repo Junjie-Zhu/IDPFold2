@@ -39,6 +39,9 @@ from src.utils import (
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
+import os
+os.environ['HYDRA_FULL_ERROR'] = '1'
+
 
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:

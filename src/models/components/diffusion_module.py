@@ -121,14 +121,12 @@ class DiffusionModule(nn.Module):
                  token_channel: int,
                  diffusion_token_channel: int,
                  embedding_module: nn.Module,
-                 diffusion_conditioning: nn.Module,
+                 # diffusion_conditioning: nn.Module,
                  atom_attention_encoder: nn.Module,
                  diffusion_transformer_main: nn.Module,
                  atom_attention_decoder: nn.Module,
                  ):
         super(DiffusionModule, self).__init__()
-        self.config = config
-        self.global_config = global_config
 
         ## diffusion coefficient
         self.sigma_data = 16
@@ -151,7 +149,7 @@ class DiffusionModule(nn.Module):
         self.embedding_ln = nn.LayerNorm(token_channel + embedding_channel)
         self.embedding_lin = nn.Linear(token_channel + embedding_channel, token_channel, bias=False)
 
-        self.diffusion_conditioning = diffusion_conditioning
+        # self.diffusion_conditioning = diffusion_conditioning
         self.atom_encoder = atom_attention_encoder
 
         self.ln1 = nn.LayerNorm(token_channel)
@@ -188,13 +186,19 @@ class DiffusionModule(nn.Module):
         # atom_mask = batch['all_atom_pos_mask']  # (B, N_atom)
         seq_mask = batch['seq_mask']  # (B, N_token)
 
+        target_vector = torch.tensor([35, 33, 0, 0]).to(x_noisy.device)
+        matching_indices = (batch['ref_atom_name_char'] == target_vector).all(dim=-1)
+        self_conditioning_ca = torch.cat(
+            [batch['ref_pos'][b][matching_indices[b]] for b in range(batch['ref_pos'].shape[0])], 0
+        )
+
         # Get embeddings.
         si, zij = self.embedder(
             residue_idx=batch['residue_index'],
             t_hat=t_hat,
             sigma_data=self.sigma_data,
             fixed_mask=seq_mask,
-            self_conditioning_ca=batch['ref_pos'],
+            self_conditioning_ca=self_conditioning_ca,
         )
 
         # detect if batch['seq_emb'] exists
@@ -557,7 +561,6 @@ class AtomAttentionEncoder(nn.Module):
                  use_dense_mode: bool,
                  atom_transformer: nn.Module):
         super(AtomAttentionEncoder, self).__init__()
-        self.config = config
         in_token_channel = in_token_channel
         out_token_channel = out_token_channel
         token_pair_channel = token_pair_channel
@@ -567,7 +570,7 @@ class AtomAttentionEncoder(nn.Module):
         self.ap_util = AtomPairUtil()
         self.dense = use_dense_mode
 
-        f_dim = 3 + 1 + 128 + 4 * 64
+        f_dim = (3 + 1 + 128 + 4 * 64)
         self.lin_atom_meta_to_cond_feat = \
             nn.Linear(f_dim, atom_channel, bias=False)
         self.lin_pos_offset_to_apair = \
@@ -797,7 +800,6 @@ class AtomAttentionDecoder(nn.Module):
                  final_zero_init: bool,
                  atom_transformer: nn.Module):
         super(AtomAttentionDecoder, self).__init__()
-        self.config = config
         token_channel = in_token_channel
         out_channel = 3
         atom_channel = atom_channel

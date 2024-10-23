@@ -1,4 +1,4 @@
-_target_: src.models.mnist_module.idpfold_multimer
+_target_: src.models.idpfold_multimer.IDPFoldMultimer
 
 optimizer:
   _target_: torch.optim.Adam
@@ -15,19 +15,29 @@ scheduler:
 
 net:
   _target_: src.models.components.diffusion_module.DiffusionModule
-  'training': False
+  'training': True
+  'embedding_channel': 1280
   'token_channel': 384
   'diffusion_token_channel': 768
-  'diffusion_conditioning':
-    _target_: src.models.components.diffusion_module.DiffusionConditioning
-    'token_channel': 384
-    'token_pair_channel': 128
+  'embedding_module':
+    _target_: src.models.components.embedder.EmbeddingModule
+    init_embed_size: 256
+    node_embed_size: 384
+    edge_embed_size: 128
+    num_bins: 22
+    min_bin: 1e-5
+    max_bin: 20.0
+    self_conditioning: true
+# 'diffusion_conditioning':
+#     _target_: src.models.components.diffusion_module.DiffusionConditioning
+#     'token_channel': 384
+#     'token_pair_channel': 128
   'atom_attention_encoder':
     _target_: src.models.components.diffusion_module.AtomAttentionEncoder
     'in_token_channel': 384  # the same as token_channel
     'out_token_channel': 768  # the same as diffusion_token_channel
     'token_pair_channel': 128
-    'atom_channel': 128,
+    'atom_channel': 128
     'atom_pair_channel': 16
     'use_dense_mode': True
     'atom_transformer':
@@ -36,16 +46,16 @@ net:
       'n_key': 128
       'diffusion_transformer':
         _target_: src.models.components.diffusion_module.DiffusionTransformer
-        'a_channel_name': 128  # the same as atom_channel
-        's_channel_name': 128  # the same as atom_channel
-        'z_channel_name': 16  # the same as atom_pair_channel
+        'a_channel': 128  # the same as atom_channel
+        's_channel': 128  # the same as atom_channel
+        'z_channel': 16  # the same as atom_pair_channel
         'n_block': 3
         'n_head': 4
   'diffusion_transformer_main':
     _target_: src.models.components.diffusion_module.DiffusionTransformer
-    'a_channel_name': 768  # the same as diffusion_token_channel
-    's_channel_name': 384  # the same as token_channel
-    'z_channel_name': 128  # the same as token_pair_channel
+    'a_channel': 768  # the same as diffusion_token_channel
+    's_channel': 384  # the same as token_channel
+    'z_channel': 128  # the same as token_pair_channel
     'n_block': 12
     'n_head': 16
   'atom_attention_decoder':
@@ -59,9 +69,9 @@ net:
       'n_key': 128
       'diffusion_transformer':
         _target_: src.models.components.diffusion_module.DiffusionTransformer
-        'a_channel_name': 128  # the same as atom_channel
-        's_channel_name': 128  # the same as atom_channel
-        'z_channel_name': 16  # the same as atom_pair_channel
+        'a_channel': 128  # the same as atom_channel
+        's_channel': 128  # the same as atom_channel
+        'z_channel': 16  # the same as atom_pair_channel
         'n_block': 3
         'n_head': 4
 

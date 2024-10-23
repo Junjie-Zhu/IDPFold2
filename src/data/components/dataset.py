@@ -49,11 +49,11 @@ def convert_atom_id_name(atom_id: str):
 
 def get_atom_features(data_object):
 
-    atom_mask = np.array(data_object['atom_mask'], dtype=np.int64)
+    atom_mask = data_object['atom_mask']
 
 
-    atom_positions = np.zeros([atom_mask.sum(), 3], dtype=np.float32)
-    token2atom_map = np.zeros(atom_mask.sum(), dtype=np.int64)
+    atom_positions = torch.zeros(atom_mask.sum(), 3, dtype=torch.float32)
+    token2atom_map = torch.zeros(atom_mask.sum(), dtype=torch.int64)
     atom_elements = np.zeros(atom_mask.sum(), dtype=np.int32)
 
     index_start, token = 0, 0
@@ -72,21 +72,22 @@ def get_atom_features(data_object):
         index_start = index_end
         token += 1
 
+    atom_elements = torch.tensor(atom_elements)
     atom_space_uid = token2atom_map
-    atom_name_char = np.array([convert_atom_id_name(atom_id) for atom_id in atom_type], dtype=np.int32)
+    atom_name_char = torch.tensor([convert_atom_id_name(atom_id) for atom_id in atom_type], dtype=torch.int32)
 
     output_batch = {
         'ref_pos': atom_positions,
         'ref_token2atom_idx': token2atom_map,
-        'all_atom_pos_mask': np.ones_like(atom_positions[:, 0]).squeeze(),
+        'all_atom_pos_mask': torch.ones_like(atom_positions[:, 0]).squeeze(),
 
         'residue_index': data_object['residue_index'],
-        'seq_mask': np.ones_like(data_object['residue_index']),
+        'seq_mask': torch.ones_like(data_object['residue_index']),
 
         'ref_space_uid': atom_space_uid,
         'ref_atom_name_chars': atom_name_char,
         'ref_element': atom_elements,
-        'ref_mask': np.ones_like(atom_elements, dtype=np.int64)
+        'ref_mask': torch.ones_like(atom_elements, dtype=torch.int64)
     }
 
     return output_batch
@@ -347,14 +348,13 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
         
         # Get sequence embedding if have
         if self.path_to_seq_embedding is not None:
-            embed_dict = torch.load(
-                os.path.join(self.path_to_seq_embedding, f"{accession_code}.pt")
-            )
-            data_object.update(
-                {
-                    'seq_emb': embed_dict['representations'][33].float(),
-                } # 33 is for ESM650M
-            )
+            with open(os.path.join(self.path_to_seq_embedding, f"{accession_code}.pkl"), 'rb') as f:
+                embed_dict = pickle.load(f)
+                data_object.update(
+                    {
+                        'seq_emb': embed_dict['representations'],
+                    } # 33 is for ESM650M
+                )
 
         data_object['accession_code'] =  accession_code
         return data_object  # dict of arrays
