@@ -51,43 +51,44 @@ def get_atom_features(data_object):
 
     atom_mask = data_object['atom_mask']
 
-
-    atom_positions = torch.zeros(atom_mask.sum(), 3, dtype=torch.float32)
-    token2atom_map = torch.zeros(atom_mask.sum(), dtype=torch.int64)
-    atom_elements = np.zeros(atom_mask.sum(), dtype=np.int32)
+    atom_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
+    token2atom_map = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
+    atom_elements = torch.zeros(int(atom_mask.sum()), dtype=torch.int32)
 
     index_start, token = 0, 0
     atom_type = []
     for residues, residue_positions in zip(atom_mask, data_object['atom_positions']):
-        length = residues.sum()
+        length = int(residues.sum())
         index_end = index_start + length
 
         token2atom_map[index_start:index_end] += token
 
-        atom_index = np.where(residues)[0]
+        atom_index = torch.where(residues)[0]
         atom_positions[index_start:index_end] = residue_positions[atom_index]
-        atom_elements[index_start:index_end] = [element_atomic_number[i] for i in atom_index]
+        atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int32)
         atom_type.extend([atom_types[i] for i in atom_index])
 
         index_start = index_end
         token += 1
 
-    atom_elements = torch.tensor(atom_elements)
+    atom_elements = atom_elements
     atom_space_uid = token2atom_map
     atom_name_char = torch.tensor([convert_atom_id_name(atom_id) for atom_id in atom_type], dtype=torch.int32)
+    ca_mask = torch.tensor([1 if atom == 'CA' else 0 for atom in atom_type], dtype=torch.float)
 
     output_batch = {
         'ref_pos': atom_positions,
         'ref_token2atom_idx': token2atom_map,
         'all_atom_pos_mask': torch.ones_like(atom_positions[:, 0]).squeeze(),
+        'ca_mask': ca_mask,
 
         'residue_index': data_object['residue_index'],
-        'seq_mask': torch.ones_like(data_object['residue_index']),
+        'seq_mask': torch.ones_like(data_object['residue_index'], dtype=torch.float32),
 
         'ref_space_uid': atom_space_uid,
         'ref_atom_name_chars': atom_name_char,
         'ref_element': atom_elements,
-        'ref_mask': torch.ones_like(atom_elements, dtype=torch.int64)
+        'ref_mask': torch.ones_like(atom_elements, dtype=torch.float)
     }
 
     return output_batch
@@ -345,7 +346,13 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
         # Apply data transform
         if self.transform is not None:
             data_object = self.transform(data_object)
-        
+            
+            fixed_mask = torch.zeros_like(data_object['ref_mask'], dtype=torch.float)
+            # randomly mask 20% of the atoms
+            mask_idx = torch.randperm(fixed_mask.shape[0])[:int(fixed_mask.shape[0] * 0.2)]
+            fixed_mask[mask_idx] = 1
+            data_object['fixed_mask'] = fixed_mask
+
         # Get sequence embedding if have
         if self.path_to_seq_embedding is not None:
             with open(os.path.join(self.path_to_seq_embedding, f"{accession_code}.pkl"), 'rb') as f:

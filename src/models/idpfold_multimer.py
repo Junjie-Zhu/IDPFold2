@@ -107,13 +107,6 @@ class IDPFoldMultimer(LightningModule):
             - A tensor of target labels.
         """
 
-        fixed_mask = torch.zeros_like(batch['ref_mask'], dtype=torch.int64)
-        # randomly mask 20% of the atoms
-        mask_idx = torch.randperm(batch['ref_mask'].sum())[:int(batch['ref_mask'].sum() * 0.2)]
-        fixed_mask[mask_idx] = 1
-
-        batch['fixed_mask'] = fixed_mask
-
         # probably add self-conditioning (recycle once)
         if self.net.embedding_module.self_conditioning and random() > 0.5:
             with torch.no_grad():

@@ -185,21 +185,24 @@ class DiffusionModule(nn.Module):
         # rel_pos_encoding = representations['rel_pos_encoding']  # (raw_batch, N_token, N_token, d2)
         # atom_mask = batch['all_atom_pos_mask']  # (B, N_atom)
         seq_mask = batch['seq_mask']  # (B, N_token)
+        batch_size, N_token = seq_mask.shape
 
-        target_vector = torch.tensor([35, 33, 0, 0]).to(x_noisy.device)
-        matching_indices = (batch['ref_atom_name_char'] == target_vector).all(dim=-1)
+        self_conditioning_ca = batch['ref_pos'][batch['ca_mask'] == 1].view([batch_size, ..., 3])
         self_conditioning_ca = torch.cat(
-            [batch['ref_pos'][b][matching_indices[b]] for b in range(batch['ref_pos'].shape[0])], 0
+            self_conditioning_ca,
+            torch.zeros((batch_size, N_token - self_conditioning_ca.shape[1], 3)).to(self_conditioning_ca.device),
         )
 
         # Get embeddings.
-        si, zij = self.embedder(
+        si, zij = self.embedding_module(
             residue_idx=batch['residue_index'],
             t_hat=t_hat,
             sigma_data=self.sigma_data,
             fixed_mask=seq_mask,
             self_conditioning_ca=self_conditioning_ca,
         )
+        si = si * seq_mask[..., None]
+        zij = zij * (seq_mask[..., None] * seq_mask[..., None, :])
 
         # detect if batch['seq_emb'] exists
         if 'seq_emb' in batch:
@@ -235,12 +238,13 @@ class DiffusionModule(nn.Module):
     def forward(self, batch):
         """forward"""
         batch_size = batch['seq_mask'].shape[0]
-        noise_schedule = (self.P_mean + self.P_std * torch.randn((batch_size,), device = self.device)).exp() * self.sigma_data
+        noise_schedule = (self.P_mean + self.P_std * torch.randn((batch_size,), device = batch['seq_mask'].device)).exp() * self.sigma_data
         noise = torch.randn_like(batch['ref_pos']) * noise_schedule[:, None, None]
 
         x_noisy = batch['ref_pos'] + noise
-
-        gamma = self.gamma0 if noise_schedule > self.gamma_min else 0
+        
+        gamma = torch.zeros_like(noise_schedule).to(noise_schedule.device)
+        gamma[noise_schedule > self.gamma_min] = self.gamma0
         t_hat = noise_schedule * (gamma + 1)
         return self._forward_model(x_noisy, t_hat, batch)
 
@@ -424,13 +428,13 @@ class AttentionPairBias(nn.Module):
             ai = self.ln(ai, si)
         else:
             ai = self.ln(ai)
-        q = self.q_lin(ai).reshape([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
-        k = self.k_lin(ai).reshape([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
-        v = self.v_lin(ai).reshape([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
+        q = self.q_lin(ai).view([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
+        k = self.k_lin(ai).view([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
+        v = self.v_lin(ai).view([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
         # zij is not tiled by diff_batch_size so far
         b = self.b_lin(self.b_ln(zij))  # (B, N, N, H) or (B, C, nq, nk, H)
         g = nn.functional.sigmoid(self.g_lin(ai)) \
-            .reshape([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
+            .view([B, N, H, d]).permute(0, 2, 1, 3)  # (B, H, N, d)
         diff_batch_size = ai.shape[0] // b.shape[0]
 
         if len(zij.shape) == 5:
@@ -456,10 +460,10 @@ class AttentionPairBias(nn.Module):
 
             query_mask = query_mask.type(q.dtype)
             key_mask = key_mask.type(k.dtype)
-            q = q[query_idx].reshape(query_like_shape) * query_mask  # (C, 32, B, H, d)
-            k = k[key_idx].reshape(key_like_shape) * key_mask  # (C, 128, B, H, d)
-            v = v[key_idx].reshape(key_like_shape) * key_mask  # (C, 128, B, H, d)
-            g = g[query_idx].reshape(query_like_shape) * query_mask  # (C, 32, B, H, d)
+            q = q[query_idx].view(query_like_shape) * query_mask  # (C, 32, B, H, d)
+            k = k[key_idx].view(key_like_shape) * key_mask  # (C, 128, B, H, d)
+            v = v[key_idx].view(key_like_shape) * key_mask  # (C, 128, B, H, d)
+            g = g[query_idx].view(query_like_shape) * query_mask  # (C, 32, B, H, d)
 
             q = q.permute(2, 3, 0, 1, 4)  # (C, 32, B, H, d) -> (B, H, C, 32, d)
             k = k.permute(2, 3, 0, 1, 4)  # (C, 128, B, H, d) -> (B, H, C, 128, d)
@@ -476,7 +480,7 @@ class AttentionPairBias(nn.Module):
             alpha = self.alpha_dropout(alpha)
 
             ai = torch.matmul(alpha, v) * g  # (B, H, C, 32, d)
-            ai = ai.reshape([B, H, C * n_query, d])
+            ai = ai.view([B, H, C * n_query, d])
             ai = ai[:, :, :si.shape[1], :]
 
         else:
@@ -493,7 +497,7 @@ class AttentionPairBias(nn.Module):
 
             ai = torch.matmul(alpha, v) * g  # (B, H, N, d)
 
-        ai = ai.permute(0, 2, 1, 3).reshape([B, N, D])
+        ai = ai.permute(0, 2, 1, 3).view([B, N, D])
         ai = self.out_lin1(ai)
         ai = self.out_dropout(ai)
         if self.has_si:
@@ -649,7 +653,7 @@ class AtomAttentionEncoder(nn.Module):
         f_ref_space_uid = feature['ref_space_uid']  # (B, M)
         f_atom_name_chars = F.one_hot(
             feature['ref_atom_name_chars'], num_classes=64)  # (B, M, 4, 64)
-        f_atom_name_chars = f_atom_name_chars.reshape(
+        f_atom_name_chars = f_atom_name_chars.view(
             [f_atom_name_chars.shape[0], f_atom_name_chars.shape[1], 4 * 64])  # (B, M, 4*64)
         atom_feat_concat = torch.concat(
             [f_ref_pos, atom_mask.unsqueeze(-1), f_ref_element, f_atom_name_chars],
@@ -1066,7 +1070,7 @@ class AttentionIndex:
         xid, yid = self.get_xy_idx(M)
         valid_pair_id = xid * M + yid
         valid_alpha_idx = index['alpha_mask'].flatten().nonzero().squeeze(-1)
-        index['pair_idx'].reshape([C * nq * nk])
+        index['pair_idx'].view([C * nq * nk])
 
         # pad valid_pair_id and valid_alpha_idx to length of pair_idx
         valid_pair_id = torch.concat([valid_pair_id,
@@ -1074,8 +1078,8 @@ class AttentionIndex:
         valid_alpha_idx = torch.concat([valid_alpha_idx,
                                         valid_alpha_idx[-1].expand(C * nq * nk - valid_alpha_idx.shape[0])])
 
-        index['pair_idx'].reshape([C * nq * nk]).scatter_(0, valid_alpha_idx, valid_pair_id)
-        index['pair_idx'] = index['pair_idx'].reshape([C, nq, nk])
+        index['pair_idx'].view([C * nq * nk]).scatter_(0, valid_alpha_idx, valid_pair_id)
+        index['pair_idx'] = index['pair_idx'].view([C, nq, nk])
 
     def get_current_centers(self):
         """ Get currently-using subset center. No update. """
@@ -1214,11 +1218,11 @@ class AtomPairUtil():
 
         atom_token_uid = atom_token_uid.flatten(0, 1)  # [B*M]
         f_pair = f_pair.flatten(0, 1)  # [B*N,N,D]
-        f_pair = f_pair[atom_token_uid] * atom_mask.reshape([-1, 1, 1])  # [B*M,N,D]
-        f_pair = f_pair.reshape([B, M, N, D]).permute(0, 2, 1, 3).flatten(0, 1)  # [B*N,M,D]
-        f_pair = f_pair[atom_token_uid] * atom_mask.reshape([-1, 1, 1])  # [B*M,M,D]
+        f_pair = f_pair[atom_token_uid] * atom_mask.view([-1, 1, 1])  # [B*M,N,D]
+        f_pair = f_pair.view([B, M, N, D]).permute(0, 2, 1, 3).flatten(0, 1)  # [B*N,M,D]
+        f_pair = f_pair[atom_token_uid] * atom_mask.view([-1, 1, 1])  # [B*M,M,D]
 
-        return f_pair.reshape([B, M, M, D]).permute(0, 2, 1, 3)  # [B,M,M,D]
+        return f_pair.view([B, M, M, D]).permute(0, 2, 1, 3)  # [B,M,M,D]
 
     def _pair_to_atompair_dense(self, f_pair, atom_token_uid):
         """ Convert per-token pair feature to dense atom-pair features.
@@ -1252,7 +1256,7 @@ class AtomPairUtil():
                                       dim=0)
             atompair = torch.zeros([C * nq * nk, D], dtype=ap_feat_dense.dtype).to(f_pair.device)
             atompair.scatter_(0, valid_pair_idx, ap_feat_dense)
-            atompair = atompair.reshape([C, nq, nk, D])  # [B,C,nq,nk,D]
+            atompair = atompair.view([C, nq, nk, D])  # [B,C,nq,nk,D]
             ap.append(atompair)
 
         ap = torch.stack(ap)
@@ -1288,7 +1292,7 @@ class AtomPairUtil():
                              dim=0)
 
         ap_sparse.scatter_(0, valid_pair_idx, ap_dense)
-        return ap_sparse.reshape([C, nq, nk, B, D]).permute(3, 0, 1, 2, 4)  # [B,C,nq,nk,D]
+        return ap_sparse.view([C, nq, nk, B, D]).permute(3, 0, 1, 2, 4)  # [B,C,nq,nk,D]
 
     def _add_2_seqs_sparse(self, ql, qm):
         """ Create sparse feature by adding two atom-level sequences feature.
@@ -1385,11 +1389,11 @@ def pair_to_atompair(f_pair, atom_token_uid, atom_mask):
 
     atom_token_uid = atom_token_uid.flatten(0, 1)  # [B*M]
     f_pair = f_pair.flatten(0, 1)  # [B*N,N,D]
-    f_pair = f_pair[atom_token_uid] * atom_mask.reshape([-1, 1, 1])  # [B*M,N,D]
-    f_pair = f_pair.reshape([B, M, N, D]).permute(0, 2, 1, 3).flatten(0, 1)  # [B*N,M,D]
-    f_pair = f_pair[atom_token_uid] * atom_mask.reshape([-1, 1, 1])  # [B*M,M,D]
+    f_pair = f_pair[atom_token_uid] * atom_mask.view([-1, 1, 1])  # [B*M,N,D]
+    f_pair = f_pair.view([B, M, N, D]).permute(0, 2, 1, 3).flatten(0, 1)  # [B*N,M,D]
+    f_pair = f_pair[atom_token_uid] * atom_mask.view([-1, 1, 1])  # [B*M,M,D]
 
-    return f_pair.reshape([B, M, M, D]).permute(0, 2, 1, 3)
+    return f_pair.view([B, M, M, D]).permute(0, 2, 1, 3)
 
 
 """ Per-atom features to per-token features """
