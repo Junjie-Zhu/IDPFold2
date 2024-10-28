@@ -53,7 +53,7 @@ def get_atom_features(data_object):
 
     atom_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
     token2atom_map = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
-    atom_elements = torch.zeros(int(atom_mask.sum()), dtype=torch.int32)
+    atom_elements = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
 
     index_start, token = 0, 0
     atom_type = []
@@ -65,15 +65,14 @@ def get_atom_features(data_object):
 
         atom_index = torch.where(residues)[0]
         atom_positions[index_start:index_end] = residue_positions[atom_index]
-        atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int32)
+        atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int64)
         atom_type.extend([atom_types[i] for i in atom_index])
 
         index_start = index_end
         token += 1
 
-    atom_elements = atom_elements
     atom_space_uid = token2atom_map
-    atom_name_char = torch.tensor([convert_atom_id_name(atom_id) for atom_id in atom_type], dtype=torch.int32)
+    atom_name_char = torch.tensor([convert_atom_id_name(atom_id) for atom_id in atom_type], dtype=torch.int64)
     ca_mask = torch.tensor([1 if atom == 'CA' else 0 for atom in atom_type], dtype=torch.float)
 
     output_batch = {

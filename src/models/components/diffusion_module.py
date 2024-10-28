@@ -185,12 +185,14 @@ class DiffusionModule(nn.Module):
         # rel_pos_encoding = representations['rel_pos_encoding']  # (raw_batch, N_token, N_token, d2)
         # atom_mask = batch['all_atom_pos_mask']  # (B, N_atom)
         seq_mask = batch['seq_mask']  # (B, N_token)
+        pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
         batch_size, N_token = seq_mask.shape
 
-        self_conditioning_ca = batch['ref_pos'][batch['ca_mask'] == 1].view([batch_size, ..., 3])
+        self_conditioning_ca = batch['ref_pos'][batch['ca_mask'] == 1]
+        padding_length = int(N_token - self_conditioning_ca.shape[0] / batch_size)
         self_conditioning_ca = torch.cat(
-            self_conditioning_ca,
-            torch.zeros((batch_size, N_token - self_conditioning_ca.shape[1], 3)).to(self_conditioning_ca.device),
+            [self_conditioning_ca.view(batch_size, int(self_conditioning_ca.shape[0] / batch_size), 3),
+             torch.zeros((batch_size, padding_length, 3)).to(self_conditioning_ca.device)], dim=1
         )
 
         # Get embeddings.
@@ -202,7 +204,7 @@ class DiffusionModule(nn.Module):
             self_conditioning_ca=self_conditioning_ca,
         )
         si = si * seq_mask[..., None]
-        zij = zij * (seq_mask[..., None] * seq_mask[..., None, :])
+        zij = zij * pair_mask[..., None]
 
         # detect if batch['seq_emb'] exists
         if 'seq_emb' in batch:
@@ -497,7 +499,7 @@ class AttentionPairBias(nn.Module):
 
             ai = torch.matmul(alpha, v) * g  # (B, H, N, d)
 
-        ai = ai.permute(0, 2, 1, 3).view([B, N, D])
+        ai = ai.permute(0, 2, 1, 3).reshape([B, N, D])
         ai = self.out_lin1(ai)
         ai = self.out_dropout(ai)
         if self.has_si:
@@ -1411,29 +1413,15 @@ def aggregate_atom_feat_to_token(f_atom, atom_token_uid, atom_mask, n_token):
     Returns:
     f_token: [B,N,D]
     """
-    B, _, D = f_atom.shape[:3]
+    B, M, D = f_atom.shape[:3]
 
-    f_atom_mean = []
-    for i in range(B):
-        idx = atom_token_uid[i].type(torch.long)
-        mask = atom_mask[i]
+    atom_count = torch.zeros(B, atom_token_uid.max().item() + 1, device=f_atom.device)
+    atom_sum = atom_count.unsqueeze(-1).expand(B, -1, D).clone()
 
-        data = f_atom[i][mask == 1]
-        segment_ids = idx[mask == 1]
-        count_data = mask[mask == 1]
+    atom_count.scatter_add_(1, atom_token_uid, atom_mask)
+    atom_sum.scatter_add_(1, atom_token_uid.unsqueeze(-1).expand(B, -1, D), f_atom)
 
-        atom_sum = torch.zeros(segment_ids.max().item() + 1, data.size(1), device=data.device)
-        atom_sum.scatter_add_(0, segment_ids.unsqueeze(1).expand(-1, data.size(1)), data)
-
-        atom_count = torch.zeros(segment_ids.max().item() + 1, device=data.device)
-        atom_count.scatter_add_(0, segment_ids, count_data)
-
-        atom_mean = atom_sum / (atom_count[:, None] + 1e-8)
-        f_atom_mean.append(atom_mean.unsqueeze(0))
-    f_atom_mean = torch.concat(f_atom_mean, dim=0)
-    pad_len = n_token - f_atom_mean.shape[1]
-    padding = torch.zeros([B, pad_len, D], dtype=f_atom.dtype).to(f_atom.device)
-    f_token = torch.concat([f_atom_mean, padding], 1)
+    f_token = atom_sum / (atom_count[..., None] + 1e-8)
     return f_token
 
 
