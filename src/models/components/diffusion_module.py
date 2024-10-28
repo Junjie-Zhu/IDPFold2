@@ -188,12 +188,15 @@ class DiffusionModule(nn.Module):
         pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
         batch_size, N_token = seq_mask.shape
 
-        self_conditioning_ca = batch['ref_pos'][batch['ca_mask'] == 1]
-        padding_length = int(N_token - self_conditioning_ca.shape[0] / batch_size)
-        self_conditioning_ca = torch.cat(
-            [self_conditioning_ca.view(batch_size, int(self_conditioning_ca.shape[0] / batch_size), 3),
-             torch.zeros((batch_size, padding_length, 3)).to(self_conditioning_ca.device)], dim=1
-        )
+        self_conditioning_ca = []
+        for b in range(batch_size):
+            ca_pos = batch['ref_pos'][b][batch['ca_mask'][b] == 1]
+            padding_length = int(N_token - ca_pos.shape[0])
+            
+            self_conditioning_ca.append(torch.cat(
+                [ca_pos, torch.zeros((padding_length, 3)).to(ca_pos.device)], dim=0)
+            )
+        self_conditioning_ca = torch.stack(self_conditioning_ca)
 
         # Get embeddings.
         si, zij = self.embedding_module(
@@ -222,7 +225,7 @@ class DiffusionModule(nn.Module):
         ai, ql_skip, cl_skip, p_lm_skip = self.atom_encoder(feature=batch, rl=r_noisy,
                                                             s_trunk=si, zij=zij, atom_mask=atom_mask)
 
-        ai += self.lin1(self.ln1(si))
+        ai = ai + self.lin1(self.ln1(si))
         beta = (1 - seq_mask[:, :, None] * seq_mask[:, None]) * (-1e8)
         ai = self.diffusion_transformer(ai, si, zij, beta=beta)
 
@@ -233,22 +236,20 @@ class DiffusionModule(nn.Module):
         x_out = self._c_ckip(t_hat) * x_noisy + self._c_out(t_hat) * r_update
         x_out = x_out * atom_mask[..., None]
 
+        output_batch = {
+            'x_out': x_out,
+            't_hat': t_hat,
+            'sigma_data': self.sigma_data,
+        }
+
         if return_r:
-            return x_out, r_update * atom_mask[..., None]
-        return x_out
+            output_batch['r_update'] = r_update * atom_mask[..., None]
+
+        return output_batch
 
     def forward(self, batch):
         """forward"""
-        batch_size = batch['seq_mask'].shape[0]
-        noise_schedule = (self.P_mean + self.P_std * torch.randn((batch_size,), device = batch['seq_mask'].device)).exp() * self.sigma_data
-        noise = torch.randn_like(batch['ref_pos']) * noise_schedule[:, None, None]
-
-        x_noisy = batch['ref_pos'] + noise
-        
-        gamma = torch.zeros_like(noise_schedule).to(noise_schedule.device)
-        gamma[noise_schedule > self.gamma_min] = self.gamma0
-        t_hat = noise_schedule * (gamma + 1)
-        return self._forward_model(x_noisy, t_hat, batch)
+        return self._forward_model(batch['ref_pos'], batch['t_hat'], batch)
 
     def sample_diffusion(self, batch, step_num=200):
         """
@@ -276,7 +277,7 @@ class DiffusionModule(nn.Module):
             dt = c_tau - t_hat
             x = x_noisy + self.eta * dt * delta
 
-        x *= atom_mask[..., None]
+        x = x * atom_mask[..., None]
         ret = {
             'final_atom_positions': x,  # (B, N_atom, 3)
             'final_atom_mask': atom_mask,  # (B, N_atom)
@@ -315,15 +316,15 @@ class DiffusionConditioning(nn.Module):
         """forward"""
         zij = torch.concat([z_trunk, rel_pos_encoding], -1)
         zij = self.pair_lin(self.pair_ln(zij))
-        zij += self.pair_trans1(zij)
-        zij += self.pair_trans2(zij)
+        zij = zij + self.pair_trans1(zij)
+        zij = zij + self.pair_trans2(zij)
 
         si = torch.concat([s_trunk, s_inputs], -1)
         si = self.single_lin1(self.single_ln1(si))
         n = self.fourier_embedding(0.25 * torch.log(t_hat / sigma_data))  # (B, c)
-        si += self.single_lin2(self.single_ln2(n[:, None]))
-        si += self.single_trans1(si)
-        si += self.single_trans2(si)
+        si = si + self.single_lin2(self.single_ln2(n[:, None]))
+        si = si + self.single_trans1(si)
+        si = si + self.single_trans2(si)
         return si, zij
 
 
@@ -375,10 +376,10 @@ class DiffusionTransformer(nn.Module):
     def forward(self, ai, si, zij, beta):
         """forward"""
         for attention, transition in zip(self.attention_list, self.transition_list):
-            ai += recompute_wrapper(attention,
-                                    ai, si, zij, beta, is_recompute=self.training)
-            ai += recompute_wrapper(transition,
-                                    ai, si, is_recompute=self.training)
+            ai = ai + recompute_wrapper(attention,
+                                        ai, si, zij, beta, is_recompute=self.training)
+            ai = ai + recompute_wrapper(transition,
+                                        ai, si, is_recompute=self.training)
         return ai
 
 
@@ -674,8 +675,8 @@ class AtomAttentionEncoder(nn.Module):
         plm = self.lin_pos_offset_to_apair(dlm) * vlm  # (b, M, M, c_atompair)
 
         # embed pairwise inverse squared distancs, and the valid mask
-        plm += self.lin_inv_sq_dist_to_apair(1 / (1 + dlm ** 2)) * vlm
-        plm += self.lin_valid_mask_to_apair(vlm) * vlm
+        plm = plm + self.lin_inv_sq_dist_to_apair(1 / (1 + dlm ** 2)) * vlm
+        plm = plm + self.lin_valid_mask_to_apair(vlm) * vlm
 
         # initialize the atom single representation as the single conditioning.
         ql = cl  # (B, M, c_a)
@@ -686,19 +687,19 @@ class AtomAttentionEncoder(nn.Module):
             s_trunk_atom = seq_to_atom_feat(s_trunk, atom_token_uid, atom_mask)  # (B, M, c_s)
 
             # broadcast the single and pair embedding from the trunk
-            cl += self.lin_trunk_single_to_cond_atom_feat(
+            cl = cl + self.lin_trunk_single_to_cond_atom_feat(
                 self.ln_trunk_single_to_cond_atom_feat(s_trunk_atom)) \
                   * atom_mask.unsqueeze(-1)  # (B, M, c_a)
 
             zij = self.lin_cond_pair_feat_to_pair_repr(
                 self.ln_cond_pair_feat_to_pair_repr(zij))
 
-            plm += self.ap_util.to_atompair(zij=zij, atom_token_uid=atom_token_uid,
+            plm = plm + self.ap_util.to_atompair(zij=zij, atom_token_uid=atom_token_uid,
                                             atom_mask=atom_mask, dense=self.dense)
             # assert plm.shape[1] == cl.shape[1]
 
             # Add the noisy positions
-            ql += self.lin_noise_pos_to_single_repr(rl) \
+            ql = ql + self.lin_noise_pos_to_single_repr(rl) \
                   * atom_mask.unsqueeze(-1)  # (B, M, c_a)
 
         # add the combined single conditioning to the pair representation
@@ -710,10 +711,10 @@ class AtomAttentionEncoder(nn.Module):
             self.act_single_cond_to_pair_repr(single_cond))  # (b, M, c_atompair)
 
         single_cond = self.ap_util.add_2_seqs(single_cond, single_cond, dense=self.dense)  # (b, M, M, c_atompair)
-        plm += single_cond
+        plm = plm + single_cond
 
         # run MLP on the pair activation
-        plm += self.mlp_pair_active(plm)
+        plm = plm + self.mlp_pair_active(plm)
 
         # cross attention transformer
         ql = self.atom_transformer(ql, cl, plm)
@@ -838,7 +839,7 @@ class AtomAttentionDecoder(nn.Module):
         # Broadcast per-token activiations to per-atom activations and add the skip connection
         al = seq_to_atom_feat(ai, atom_token_uid, atom_mask)  # (B, M, C_t)
         al = al * atom_mask.unsqueeze(-1)  # (B, M, C_s)
-        ql_skip += self.lin0(al) * atom_mask.unsqueeze(-1)  # (B, M, C_a)
+        ql_skip = ql_skip + self.lin0(al) * atom_mask.unsqueeze(-1)  # (B, M, C_a)
 
         # cross attention transformer
         ql_skip = self.atom_transformer(ql_skip, cl_skip, plm_skip, ) \
@@ -1007,7 +1008,7 @@ class AttentionIndex:
         query_pad = np.full([query_pad_len], -1, dtype=np.int64)
         query_idx = np.concatenate([query_idx, query_pad]).reshape(C, nq)
         query_mask = (query_idx != -1).astype(np.int64)
-        query_idx *= query_mask
+        query_idx = query_idx * query_mask
 
         # key indices
         key_blks = []
@@ -1020,7 +1021,7 @@ class AttentionIndex:
             key_blks.append(key_id_c)
         key_idx = np.concatenate(key_blks).reshape([C, nk])
         key_mask = (key_idx != -1).astype(np.int64)
-        key_idx *= key_mask
+        key_idx = key_idx * key_mask
 
         # alpha mask
         alpha_mask = query_mask[..., np.newaxis] * key_mask[:, np.newaxis]  # [C,nq,nk]
@@ -1257,7 +1258,8 @@ class AtomPairUtil():
                                        ap_feat_dense[-1].expand([C * nq * nk - ap_feat_dense.shape[0], -1])],
                                       dim=0)
             atompair = torch.zeros([C * nq * nk, D], dtype=ap_feat_dense.dtype).to(f_pair.device)
-            atompair.scatter_(0, valid_pair_idx, ap_feat_dense)
+
+            atompair.scatter_(0, valid_pair_idx.expand(C * nq * nk, D), ap_feat_dense)
             atompair = atompair.view([C, nq, nk, D])  # [B,C,nq,nk,D]
             ap.append(atompair)
 
@@ -1293,7 +1295,7 @@ class AtomPairUtil():
                               ap_dense[-1].expand([C * nq * nk - ap_dense.shape[0], -1, -1])],
                              dim=0)
 
-        ap_sparse.scatter_(0, valid_pair_idx, ap_dense)
+        ap_sparse.scatter_(0, valid_pair_idx.expand(C * nq * nk, B, D), ap_dense)
         return ap_sparse.view([C, nq, nk, B, D]).permute(3, 0, 1, 2, 4)  # [B,C,nq,nk,D]
 
     def _add_2_seqs_sparse(self, ql, qm):

@@ -41,7 +41,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 import os
 os.environ['HYDRA_FULL_ERROR'] = '1'
-
+torch.autograd.set_detect_anomaly(True)
 
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:

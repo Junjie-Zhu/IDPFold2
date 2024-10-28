@@ -52,14 +52,14 @@ def weighted_rigid_align(
     U, S, V = torch.svd(cov_matrix)
     U_T = U.transpose(-2, -1)
 
-    det = torch.det(torch.einsum("b i j, b j k -> b i k"), V, U_T)
+    det = torch.det(torch.einsum("b i j, b j k -> b i k", V, U_T))
 
     # Ensure proper rotation matrix with determinant 1
     diag = torch.eye(dim, dtype=det.dtype, device=det.device)
-    diag = tile_batch_dim(diag, batch_size)
+    diag = tile_batch_dim(diag, batch_size).view(batch_size, dim, dim)
 
     diag[:, -1, -1] = det
-    rot_matrix = torch.einsum(V, diag, U_T, "b i j, b j k, b k l -> b i l")
+    rot_matrix = torch.einsum("b i j, b j k, b k l -> b i l", V, diag, U_T)
 
     # Apply the rotation and translation
     true_aligned_coords = (
@@ -79,20 +79,22 @@ def weighted_rigid_align(
 def weighted_MSE_loss(
     pred_coords,
     true_coords,
+    weights,
     mask,
 ):
     """Compute the weighted MSE loss.
 
     :param pred_coords: Predicted coordinates.
     :param true_coords: True coordinates.
+    :param weights: The weights for the loss.
     :param mask: The mask for variable lengths.
     :return: The weighted MSE loss.
     """
 
     aligned_coords = weighted_rigid_align(pred_coords, true_coords, mask)
 
-    losses =  F.mse_loss(pred_coords, aligned_coords, reduction = 'none') / 3.
-    loss = losses[mask].mean()
+    losses = weights.unsqueeze(-1) * F.mse_loss(pred_coords, aligned_coords, reduction = 'none') / 3.
+    loss = losses[mask.to(torch.int64)].mean()
     return loss
 
 

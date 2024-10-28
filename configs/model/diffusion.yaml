@@ -17,12 +17,12 @@ net:
   _target_: src.models.components.diffusion_module.DiffusionModule
   'training': True
   'embedding_channel': 1280
-  'token_channel': 384
-  'diffusion_token_channel': 768
+  'token_channel': 256
+  'diffusion_token_channel': 384
   'embedding_module':
     _target_: src.models.components.embedder.EmbeddingModule
     init_embed_size: 256
-    node_embed_size: 384
+    node_embed_size: 256
     edge_embed_size: 128
     num_bins: 22
     min_bin: 1e-5
@@ -34,8 +34,8 @@ net:
 #     'token_pair_channel': 128
   'atom_attention_encoder':
     _target_: src.models.components.diffusion_module.AtomAttentionEncoder
-    'in_token_channel': 384  # the same as token_channel
-    'out_token_channel': 768  # the same as diffusion_token_channel
+    'in_token_channel': 256  # the same as token_channel
+    'out_token_channel': 384  # the same as diffusion_token_channel
     'token_pair_channel': 128
     'atom_channel': 128
     'atom_pair_channel': 16
@@ -53,14 +53,14 @@ net:
         'n_head': 4
   'diffusion_transformer_main':
     _target_: src.models.components.diffusion_module.DiffusionTransformer
-    'a_channel': 768  # the same as diffusion_token_channel
-    's_channel': 384  # the same as token_channel
+    'a_channel': 384  # the same as diffusion_token_channel
+    's_channel': 256  # the same as token_channel
     'z_channel': 128  # the same as token_pair_channel
-    'n_block': 12
+    'n_block': 8
     'n_head': 16
   'atom_attention_decoder':
     _target_: src.models.components.diffusion_module.AtomAttentionDecoder
-    'in_token_channel': 768  # the same as diffusion_token_channel
+    'in_token_channel': 384  # the same as diffusion_token_channel
     'atom_channel': 128
     'final_zero_init': False,
     'atom_transformer':  # the same as that in atom_attention_encoder

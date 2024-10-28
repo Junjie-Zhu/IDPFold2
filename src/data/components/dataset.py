@@ -47,6 +47,15 @@ def convert_atom_id_name(atom_id: str):
   return [ord(c) - 32 for c in atom_id_pad]
 
 
+def convert_atom_name_id(atom_name: List[int]):
+    """
+        Converts integer of atom_name to unique atom_id names.
+        Each character is decoded as chr(c + 32)
+    """
+    atom_name = ''.join([chr(c + 32) for c in atom_name])
+    return atom_name.strip()
+
+
 def get_atom_features(data_object):
 
     atom_mask = data_object['atom_mask']
@@ -77,6 +86,7 @@ def get_atom_features(data_object):
 
     output_batch = {
         'ref_pos': atom_positions,
+        'label_pos': atom_positions,
         'ref_token2atom_idx': token2atom_map,
         'all_atom_pos_mask': torch.ones_like(atom_positions[:, 0]).squeeze(),
         'ca_mask': ca_mask,

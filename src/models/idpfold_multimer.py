@@ -4,13 +4,15 @@ from random import random
 from copy import deepcopy
 
 import numpy as np
+import tqdm
 import torch
 from PIL.ImageOps import scale
 from lightning import LightningModule
 from torchmetrics import MinMetric, MeanMetric
 
-from src.models.components.transport import R3Diffuser
+from src.data.components.dataset import convert_atom_name_id
 from src.models.loss import weighted_MSE_loss
+from src.common.pdb_utils import write_pdb_raw
 
 
 
@@ -107,16 +109,31 @@ class IDPFoldMultimer(LightningModule):
             - A tensor of target labels.
         """
 
+        batch_size = batch['seq_mask'].shape[0]
+        noise_schedule = (self.net.P_mean + self.net.P_std * torch.randn((batch_size,), device=batch[
+            'seq_mask'].device)).exp() * self.net.sigma_data
+        noise = torch.randn_like(batch['ref_pos']) * noise_schedule[:, None, None]
+
+        batch['ref_pos'] += noise
+
+        gamma = torch.zeros_like(noise_schedule).to(noise_schedule.device)
+        gamma[noise_schedule > self.net.gamma_min] = self.net.gamma0
+        t_hat = noise_schedule * (gamma + 1)
+
+        batch['t_hat'] = t_hat
+
         # probably add self-conditioning (recycle once)
         if self.net.embedding_module.self_conditioning and random() > 0.5:
             with torch.no_grad():
-                batch['ref_pos'] = self.net(batch)
+                batch['ref_pos'] = self.net(batch)['x_out']
 
         # feedforward
         out = self.net(batch)
 
         # calculate losses
-        loss = weighted_MSE_loss(out, batch['ref_pos'], batch['ref_mask'] * (1 - batch['fixed_mask']))
+        loss_weight = (out['t_hat'] ** 2 + out['sigma_data'] ** 2) / (out['t_hat'] + out['sigma_data']) ** 2
+        loss = weighted_MSE_loss(out['x_out'], batch['label_pos'], loss_weight,
+                                 batch['ref_mask'] * (1 - batch['fixed_mask']))
         return loss
 
     def training_step(
@@ -194,9 +211,23 @@ class IDPFoldMultimer(LightningModule):
         n_replica = self.hparams.inference.n_replica
         output_dir = self.hparams.inference.output_dir
 
-        output_dict = self.net.sample_diffusion(batch)
+        rep_index = 1
+        for replica in tqdm.tqdm(range(int(n_replica / batch['seq_mask'].shape[0]) + 1),
+                                 desc=f"Inference {rep_index}/{n_replica}"):
+            output_dict = self.net.sample_diffusion(batch)
 
-        return output_dict
+            output_coords = output_dict['final_atom_positions'] + batch['ref_pos'] * (1 - output_dict['final_atom_mask'])
+            output_coords = output_coords.cpu()
+
+            # atom_name and residue_name
+            output_atom_name = [convert_atom_name_id(i) for i in batch['ref_atom_name_chars'][0]]
+            output_residue_name = [batch['aatype'][i] for i in batch['ref_token2atom_idx'][0]]
+
+            # save output
+            write_pdb_raw(output_atom_name, output_residue_name, batch['ref_token2atom_idx'][0],
+                          output_coords, os.path.join(output_dir, f"{replica}.pdb"), batch['accession_code'][0])
+
+            rep_index += 1
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
