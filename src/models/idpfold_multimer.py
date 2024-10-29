@@ -225,7 +225,7 @@ class IDPFoldMultimer(LightningModule):
 
             # save output
             write_pdb_raw(output_atom_name, output_residue_name, batch['ref_token2atom_idx'][0],
-                          output_coords, os.path.join(output_dir, f"{replica}.pdb"), batch['accession_code'][0])
+                          output_coords, os.path.join(output_dir, replica), batch['accession_code'][0])
 
             rep_index += 1
 

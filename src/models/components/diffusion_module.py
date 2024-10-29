@@ -272,7 +272,7 @@ class DiffusionModule(nn.Module):
             batch['ref_pos'] = x_noisy
             x_denoised = self._forward_model(x_noisy,
                                              torch.tile(t_hat, [B]).to(x_noisy.device),
-                                             batch)
+                                             batch)['x_out']
             delta = (x_noisy - x_denoised) / t_hat
             dt = c_tau - t_hat
             x = x_noisy + self.eta * dt * delta

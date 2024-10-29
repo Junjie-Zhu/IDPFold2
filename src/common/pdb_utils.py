@@ -15,8 +15,8 @@ from biotite.structure.io.pdb import PDBFile
 from src.common import protein
     
 
-def write_pdb_raw(atom_names: List[str],
-                  aatypes: List[str],
+def write_pdb_raw(atom_names,
+                  aatypes,
                   atom_res_map: torch.Tensor,
                   atom_positions: torch.Tensor,
                   output_path: str,
@@ -29,10 +29,11 @@ def write_pdb_raw(atom_names: List[str],
             with open(output_path + f'/{accession_code}_{pdb_index}.pdb', 'w') as f:
                 for i in range(atom_positions.shape[1]):
                     f.write(
-                        f'ATOM  {i + 1:>5}  {atom_names[i]:>3} {aatypes[i]:>3} A {atom_res_map[i] + 1:>3}'
-                        f'      {atom_positions[pdb_index][i][0]:.3f}   {atom_positions[pdb_index][i][1]:.3f}   {atom_positions[pdb_index][i][2]:.3f}'
-                        f'  1.00  0.00           {atom_names[i][0]}\n')
-                f.write('END\n')
+                        f'ATOM  {i + 1:>5} {atom_names[i]:<4} {aatypes[i]:>3} A{atom_res_map[i] + 1:>4}    '
+                        f'{atom_positions[pdb_index][i][0]:>8.3f}{atom_positions[pdb_index][i][1]:>8.3f}{atom_positions[pdb_index][i][2]:>8.3f}'
+                        f'  1.00  0.00           {atom_names[i][0]:>2}\n'
+                    )
+                    f.write('END\n')
 
     elif mode == 'single':  # save into a single file
         with open(output_path + f'/{accession_code}.pdb', 'w') as f:
@@ -40,11 +41,13 @@ def write_pdb_raw(atom_names: List[str],
                 f.write(f'MODEL     {pdb_index + 1}\n')
                 for i in range(atom_positions.shape[1]):
                     f.write(
-                        f'ATOM  {i + 1:>5}  {atom_names[i]:>3} {aatypes[i]:>3} A {atom_res_map[i] + 1:>3}'
-                        f'      {atom_positions[pdb_index][i][0]:.3f}   {atom_positions[pdb_index][i][1]:.3f}   {atom_positions[pdb_index][i][2]:.3f}'
-                        f'  1.00  0.00           {atom_names[i][0]}\n')
+                        f'ATOM  {i + 1:>5} {atom_names[i]:<4} {aatypes[i]:>3} A{atom_res_map[i] + 1:>4}    '
+                        f'{atom_positions[pdb_index][i][0]:>8.3f}{atom_positions[pdb_index][i][1]:>8.3f}{atom_positions[pdb_index][i][2]:>8.3f}'
+                        f'  1.00  0.00           {atom_names[i][0]:>2}\n'
+                    )
                 f.write('ENDMDL\n')
             f.write('END\n')
+
 
 
 def write_pdb_string(pdb_string: str, save_to: str):
