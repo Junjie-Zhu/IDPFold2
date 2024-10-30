@@ -356,11 +356,11 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
         if self.transform is not None:
             data_object = self.transform(data_object)
             
-            fixed_mask = torch.zeros_like(data_object['ref_mask'], dtype=torch.float)
-            # randomly mask 20% of the atoms
-            mask_idx = torch.randperm(fixed_mask.shape[0])[:int(fixed_mask.shape[0] * 0.2)]
-            fixed_mask[mask_idx] = 1
-            data_object['fixed_mask'] = fixed_mask
+            # fixed_mask = torch.zeros_like(data_object['ref_mask'], dtype=torch.float)
+            # # randomly mask 20% of the atoms
+            # mask_idx = torch.randperm(fixed_mask.shape[0])[:int(fixed_mask.shape[0] * 0.2)]
+            # fixed_mask[mask_idx] = 1
+            # data_object['fixed_mask'] = fixed_mask
 
         # Get sequence embedding if have
         if self.path_to_seq_embedding is not None:

@@ -133,7 +133,8 @@ class IDPFoldMultimer(LightningModule):
         # calculate losses
         loss_weight = (out['t_hat'] ** 2 + out['sigma_data'] ** 2) / (out['t_hat'] + out['sigma_data']) ** 2
         loss = weighted_MSE_loss(out['x_out'], batch['label_pos'], loss_weight,
-                                 batch['ref_mask'] * (1 - batch['fixed_mask']))
+                                 batch['ref_mask'])
+                                 # * (1 - batch['fixed_mask']))
         return loss
 
     def training_step(

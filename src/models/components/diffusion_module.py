@@ -221,7 +221,8 @@ class DiffusionModule(nn.Module):
         r_noisy = x_noisy / torch.sqrt(t_hat ** 2 + self.sigma_data ** 2)
 
         atom_token_uid = batch['ref_token2atom_idx']
-        atom_mask = batch['ref_mask'] * (1 - batch['fixed_mask'])
+        atom_mask = batch['ref_mask']
+                     # * (1 - batch['fixed_mask']))
         ai, ql_skip, cl_skip, p_lm_skip = self.atom_encoder(feature=batch, rl=r_noisy,
                                                             s_trunk=si, zij=zij, atom_mask=atom_mask)
 
