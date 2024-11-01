@@ -8,7 +8,7 @@ dataset:
   metadata_filter: 
     _target_: src.data.components.dataset.MetadataFilter
     min_len: 10
-    max_len: 500
+    max_len: 2000
   transform: 
     _target_: src.data.components.dataset.ProteinFeatureTransform
     truncate_length: 384
@@ -19,7 +19,7 @@ dataset:
 
 batch_size: 2 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 generator_seed: 42
-train_val_split: [0.8, 0.2]
+train_val_split: [0.94, 0.06]
 num_workers: 4
 pin_memory: false
 shuffle: false

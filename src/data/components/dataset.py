@@ -47,15 +47,6 @@ def convert_atom_id_name(atom_id: str):
   return [ord(c) - 32 for c in atom_id_pad]
 
 
-def convert_atom_name_id(atom_name: List[int]):
-    """
-        Converts integer of atom_name to unique atom_id names.
-        Each character is decoded as chr(c + 32)
-    """
-    atom_name = ''.join([chr(c + 32) for c in atom_name])
-    return atom_name.strip()
-
-
 def get_atom_features(data_object):
 
     atom_mask = data_object['atom_mask']
@@ -93,6 +84,7 @@ def get_atom_features(data_object):
 
         'residue_index': data_object['residue_index'],
         'seq_mask': torch.ones_like(data_object['residue_index'], dtype=torch.float32),
+        'seq_emb': data_object['seq_emb'],
 
         'ref_space_uid': atom_space_uid,
         'ref_atom_name_chars': atom_name_char,
@@ -354,7 +346,7 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
             with open(data_path, 'r') as f:
                 pdb_string = f.read()
             data_object = protein.from_pdb_string(pdb_string).to_dict()
-
+        
         # Get sequence embedding if have
         if self.path_to_seq_embedding is not None:
             with open(os.path.join(self.path_to_seq_embedding, f"{accession_code}.pkl"), 'rb') as f:
@@ -397,13 +389,15 @@ class PretrainPDBDataset(RandomAccessProteinDataset):
 class SamplingPDBDataset(RandomAccessProteinDataset):
     def __init__(self, 
                  path_to_dataset: str,
+                 path_to_seq_embedding: str,
                  training: bool = False,
                  suffix: str = '.pdb',
                  transform: Optional[ProteinFeatureTransform] = None, 
                  accession_code_fillter: Optional[Sequence[str]] = None,
     ):
-        assert os.path.isdir(path_to_dataset), f"Invalid path (expected to be directory): {path_to_dataset}"
+        # assert os.path.isdir(path_to_dataset), f"Invalid path (expected to be directory): {path_to_dataset}"
         super(SamplingPDBDataset, self).__init__(path_to_dataset=path_to_dataset, 
+                                            path_to_seq_embedding=path_to_seq_embedding,
                                             training=training,
                                             suffix=suffix,
                                             transform=transform,

@@ -4,16 +4,13 @@ from random import random
 from copy import deepcopy
 
 import numpy as np
-import tqdm
 import torch
 from PIL.ImageOps import scale
 from lightning import LightningModule
 from torchmetrics import MinMetric, MeanMetric
 
-from src.data.components.dataset import convert_atom_name_id
 from src.models.loss import weighted_MSE_loss
 from src.common.pdb_utils import write_pdb_raw
-
 
 
 class IDPFoldMultimer(LightningModule):
@@ -134,7 +131,7 @@ class IDPFoldMultimer(LightningModule):
         loss_weight = (out['t_hat'] ** 2 + out['sigma_data'] ** 2) / (out['t_hat'] + out['sigma_data']) ** 2
         loss = weighted_MSE_loss(out['x_out'], batch['label_pos'], loss_weight,
                                  batch['ref_mask'])
-                                 # * (1 - batch['fixed_mask']))
+                                 #* (1 - batch['fixed_mask']))
         return loss
 
     def training_step(
@@ -213,8 +210,7 @@ class IDPFoldMultimer(LightningModule):
         output_dir = self.hparams.inference.output_dir
 
         rep_index = 1
-        for replica in tqdm.tqdm(range(int(n_replica / batch['seq_mask'].shape[0]) + 1),
-                                 desc=f"Inference {rep_index}/{n_replica}"):
+        for replica in range(int(n_replica / batch['seq_mask'].shape[0]) + 1):
             output_dict = self.net.sample_diffusion(batch)
 
             output_coords = output_dict['final_atom_positions'] + batch['ref_pos'] * (1 - output_dict['final_atom_mask'])
@@ -229,6 +225,8 @@ class IDPFoldMultimer(LightningModule):
                           output_coords, os.path.join(output_dir, replica), batch['accession_code'][0])
 
             rep_index += 1
+
+        return output_dict
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,

@@ -4,17 +4,16 @@ import os
 import re
 from typing import Optional
 from collections import OrderedDict
-from typing import Any, List, Dict, Tuple, Optional
 
-import numpy as np
 import torch
+import numpy as np
 from tqdm import tqdm
 import biotite.structure as struct
 from biotite.structure.io.pdb import PDBFile
 
 from src.common import protein
     
-
+    
 def write_pdb_raw(atom_names,
                   aatypes,
                   atom_res_map: torch.Tensor,
@@ -47,8 +46,7 @@ def write_pdb_raw(atom_names,
                     )
                 f.write('ENDMDL\n')
             f.write('END\n')
-
-
+            
 
 def write_pdb_string(pdb_string: str, save_to: str):
     """Write pdb string to file"""

@@ -8,10 +8,11 @@ dataset:
   transform: 
     _target_: src.data.components.dataset.ProteinFeatureTransform
     truncate_length: null
-    strip_missing_residues: false
+    strip_missing_residues: true
     recenter_and_scale: false
     eps: 1e-8
   accession_code_fillter: null  # enable to only sample for the specified targets
+  suffix: pkl
 
 batch_size: 1
 generator_seed: 42

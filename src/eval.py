@@ -39,7 +39,7 @@ from src.utils import (
     plot_utils,
 )
 from src.common.pdb_utils import extract_backbone_coords
-from src.metrics import metrics 
+# from src.metrics import metrics 
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -155,9 +155,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # metric_dict = trainer.callback_metrics
     log.info("Starting evaluations.")
-    metric_dict = evaluate_prediction(pred_dir, target_dir=cfg.target_dir)
+    # metric_dict = evaluate_prediction(pred_dir, target_dir=cfg.target_dir)
     
-    return metric_dict, object_dict
+    return object_dict
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="eval.yaml")

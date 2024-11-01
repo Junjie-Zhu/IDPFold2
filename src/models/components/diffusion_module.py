@@ -221,8 +221,8 @@ class DiffusionModule(nn.Module):
         r_noisy = x_noisy / torch.sqrt(t_hat ** 2 + self.sigma_data ** 2)
 
         atom_token_uid = batch['ref_token2atom_idx']
-        atom_mask = batch['ref_mask']
-                     # * (1 - batch['fixed_mask']))
+        atom_mask = batch['ref_mask'] 
+        # * (1 - batch['fixed_mask'])
         ai, ql_skip, cl_skip, p_lm_skip = self.atom_encoder(feature=batch, rl=r_noisy,
                                                             s_trunk=si, zij=zij, atom_mask=atom_mask)
 
@@ -377,10 +377,12 @@ class DiffusionTransformer(nn.Module):
     def forward(self, ai, si, zij, beta):
         """forward"""
         for attention, transition in zip(self.attention_list, self.transition_list):
-            ai = ai + recompute_wrapper(attention,
-                                        ai, si, zij, beta, is_recompute=self.training)
-            ai = ai + recompute_wrapper(transition,
-                                        ai, si, is_recompute=self.training)
+            # ai = ai + recompute_wrapper(attention,
+            #                             ai, si, zij, beta, is_recompute=self.training)
+            # ai = ai + recompute_wrapper(transition,
+            #                             ai, si, is_recompute=self.training)
+            ai = ai + attention(ai, si, zij, beta)
+            ai = ai + transition(ai, si)
         return ai
 
 

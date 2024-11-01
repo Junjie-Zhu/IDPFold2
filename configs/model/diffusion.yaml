@@ -75,5 +75,12 @@ net:
         'n_block': 3
         'n_head': 4
 
+# default hparam for sampling s2011
+inference:
+  n_replica: 128
+  replica_per_batch: 64
+  self_conditioning: true
+  output_dir: ${paths.output_dir}/samples
+
 # compile model for faster training with pytorch 2.0
 compile: false
