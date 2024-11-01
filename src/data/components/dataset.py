@@ -171,8 +171,11 @@ class ProteinFeatureTransform:
         # Strip missing residues on both ends
         modeled_idx = np.where(chain_feats['aatype'] != 20)[0]
         min_idx, max_idx = np.min(modeled_idx), np.max(modeled_idx)
+
+        seq_emb = chain_feats['seq_emb']
         chain_feats = tree.map_structure(
                 lambda x: x[min_idx : (max_idx+1)], chain_feats)
+        chain_feats['seq_emb'] = seq_emb
         return chain_feats
     
     @staticmethod
@@ -351,16 +354,6 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
             with open(data_path, 'r') as f:
                 pdb_string = f.read()
             data_object = protein.from_pdb_string(pdb_string).to_dict()
-        
-        # Apply data transform
-        if self.transform is not None:
-            data_object = self.transform(data_object)
-            
-            # fixed_mask = torch.zeros_like(data_object['ref_mask'], dtype=torch.float)
-            # # randomly mask 20% of the atoms
-            # mask_idx = torch.randperm(fixed_mask.shape[0])[:int(fixed_mask.shape[0] * 0.2)]
-            # fixed_mask[mask_idx] = 1
-            # data_object['fixed_mask'] = fixed_mask
 
         # Get sequence embedding if have
         if self.path_to_seq_embedding is not None:
@@ -371,6 +364,16 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
                         'seq_emb': embed_dict['representations'],
                     } # 33 is for ESM650M
                 )
+
+        # Apply data transform
+        if self.transform is not None:
+            data_object = self.transform(data_object)
+            
+            # fixed_mask = torch.zeros_like(data_object['ref_mask'], dtype=torch.float)
+            # # randomly mask 20% of the atoms
+            # mask_idx = torch.randperm(fixed_mask.shape[0])[:int(fixed_mask.shape[0] * 0.2)]
+            # fixed_mask[mask_idx] = 1
+            # data_object['fixed_mask'] = fixed_mask
 
         data_object['accession_code'] =  accession_code
         return data_object  # dict of arrays

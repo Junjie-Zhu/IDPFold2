@@ -1418,7 +1418,7 @@ def aggregate_atom_feat_to_token(f_atom, atom_token_uid, atom_mask, n_token):
     """
     B, M, D = f_atom.shape[:3]
 
-    atom_count = torch.zeros(B, atom_token_uid.max().item() + 1, device=f_atom.device)
+    atom_count = torch.zeros(B, n_token, device=f_atom.device)
     atom_sum = atom_count.unsqueeze(-1).expand(B, -1, D).clone()
 
     atom_count.scatter_add_(1, atom_token_uid, atom_mask)
