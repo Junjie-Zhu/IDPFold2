@@ -9,6 +9,8 @@ from PIL.ImageOps import scale
 from lightning import LightningModule
 from torchmetrics import MinMetric, MeanMetric
 
+from src.data.components.dataset import convert_atom_name_id
+from src.models.components.transport import R3Diffuser
 from src.models.loss import weighted_MSE_loss
 from src.common.pdb_utils import write_pdb_raw
 
@@ -208,21 +210,36 @@ class IDPFoldMultimer(LightningModule):
         # extract hyperparams for inference
         n_replica = self.hparams.inference.n_replica
         output_dir = self.hparams.inference.output_dir
+        batch_size = self.hparams.inference.replica_per_batch
+
+        if not os.path.exists(output_dir):
+            os.mkdir(output_dir)
+
+        restypes = [
+            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
+        ]
 
         rep_index = 1
-        for replica in range(int(n_replica / batch['seq_mask'].shape[0]) + 1):
+        for replica in range(int(n_replica / batch_size)):
+            for k, v in batch.items():
+                # check if v is tensor
+                if torch.is_tensor(v):
+                    batch[k] = v.expand(batch_size, *v.shape[1:])
+                else:
+                    continue
+
             output_dict = self.net.sample_diffusion(batch)
 
-            output_coords = output_dict['final_atom_positions'] + batch['ref_pos'] * (1 - output_dict['final_atom_mask'])
-            output_coords = output_coords.cpu()
+            output_coords = output_dict['final_atom_positions'].cpu()
 
             # atom_name and residue_name
             output_atom_name = [convert_atom_name_id(i) for i in batch['ref_atom_name_chars'][0]]
-            output_residue_name = [batch['aatype'][i] for i in batch['ref_token2atom_idx'][0]]
+            output_residue_name = [restypes[batch['aatype'][0][i]] for i in batch['ref_token2atom_idx'][0]]
 
             # save output
             write_pdb_raw(output_atom_name, output_residue_name, batch['ref_token2atom_idx'][0],
-                          output_coords, os.path.join(output_dir, replica), batch['accession_code'][0])
+                          output_coords, os.path.join(output_dir, str(replica)), batch['accession_code'][0])
 
             rep_index += 1
 

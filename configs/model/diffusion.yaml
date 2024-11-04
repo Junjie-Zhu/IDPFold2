@@ -77,8 +77,8 @@ net:
 
 # default hparam for sampling s2011
 inference:
-  n_replica: 128
-  replica_per_batch: 64
+  n_replica: 5
+  replica_per_batch: 5
   self_conditioning: true
   output_dir: ${paths.output_dir}/samples
 

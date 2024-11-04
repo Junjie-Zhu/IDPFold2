@@ -265,7 +265,7 @@ class DiffusionModule(nn.Module):
         for i in range(1, len(c_list)):
             c_tau = c_list[i]
             c_tau_1 = c_list[i - 1]
-            x = CentreRandomAugmentation(x, atom_mask)
+            # x = CentreRandomAugmentation(x, atom_mask)
             gamma = self.gamma0 if c_tau > self.gamma_min else 0
             t_hat = c_tau_1 * (gamma + 1)
             xi = self.lambda_ * torch.sqrt(t_hat ** 2 - c_tau_1 ** 2) * torch.normal(0., 1., size=[B, N_atom, 3])

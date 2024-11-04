@@ -22,6 +22,9 @@ def write_pdb_raw(atom_names,
                   accession_code: str,
                   mode='multiple'):
 
+    if not os.path.exists(output_path):
+        os.mkdir(output_path)
+
     if mode == 'multiple':  # save into multiple files
 
         for pdb_index in range(atom_positions.shape[0]):
@@ -32,7 +35,7 @@ def write_pdb_raw(atom_names,
                         f'{atom_positions[pdb_index][i][0]:>8.3f}{atom_positions[pdb_index][i][1]:>8.3f}{atom_positions[pdb_index][i][2]:>8.3f}'
                         f'  1.00  0.00           {atom_names[i][0]:>2}\n'
                     )
-                    f.write('END\n')
+                f.write('END\n')
 
     elif mode == 'single':  # save into a single file
         with open(output_path + f'/{accession_code}.pdb', 'w') as f:

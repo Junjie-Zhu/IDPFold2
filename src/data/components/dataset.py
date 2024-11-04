@@ -38,13 +38,22 @@ element_atomic_number = [
 
 
 def convert_atom_id_name(atom_id: str):
-  """
-    Converts unique atom_id names to integer of atom_name. need to be padded to length 4.
-    Each character is encoded as ord(c) - 32
-  """
-  atom_id_pad = atom_id.ljust(4, ' ')
-  assert len(atom_id_pad) == 4
-  return [ord(c) - 32 for c in atom_id_pad]
+    """
+        Converts unique atom_id names to integer of atom_name. need to be padded to length 4.
+        Each character is encoded as ord(c) - 32
+    """
+    atom_id_pad = atom_id.ljust(4, ' ')
+    assert len(atom_id_pad) == 4
+    return [ord(c) - 32 for c in atom_id_pad]
+
+
+def convert_atom_name_id(atom_name: List[int]):
+    """
+        Converts integer of atom_name to unique atom_id names.
+        Each character is decoded as chr(c + 32)
+    """
+    atom_name = ''.join([chr(c + 32) for c in atom_name])
+    return atom_name.strip()
 
 
 def get_atom_features(data_object):
@@ -84,6 +93,7 @@ def get_atom_features(data_object):
 
         'residue_index': data_object['residue_index'],
         'seq_mask': torch.ones_like(data_object['residue_index'], dtype=torch.float32),
+        'aatype': data_object['aatype'],
         'seq_emb': data_object['seq_emb'],
 
         'ref_space_uid': atom_space_uid,
