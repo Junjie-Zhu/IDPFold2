@@ -11,7 +11,7 @@ from torchmetrics import MinMetric, MeanMetric
 
 from src.data.components.dataset import convert_atom_name_id
 from src.models.components.transport import R3Diffuser
-from src.models.loss import weighted_MSE_loss
+from src.models.loss import weighted_MSE_loss, pairwise_distance_loss
 from src.common.pdb_utils import write_pdb_raw
 
 
@@ -131,9 +131,8 @@ class IDPFoldMultimer(LightningModule):
 
         # calculate losses
         loss_weight = (out['t_hat'] ** 2 + out['sigma_data'] ** 2) / (out['t_hat'] + out['sigma_data']) ** 2
-        loss = weighted_MSE_loss(out['x_out'], batch['label_pos'], loss_weight,
-                                 batch['ref_mask'])
-                                 #* (1 - batch['fixed_mask']))
+        loss = (weighted_MSE_loss(out['x_out'], batch['label_pos'], loss_weight, batch['ref_mask']) +
+                pairwise_distance_loss(out['x_out'], batch['ref_pos'], loss_weight, batch['ref_mask'][..., None] * batch['ref_mask'][..., None, :]))
         return loss
 
     def training_step(

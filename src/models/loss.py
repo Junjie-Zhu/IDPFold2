@@ -98,3 +98,16 @@ def weighted_MSE_loss(
     return loss
 
 
+def pairwise_distance_loss(
+        pred_coords,
+        true_coords,
+        weights,
+        mask,
+):
+    pred_cdist = torch.cdist(pred_coords, pred_coords, p=2)
+    normalized_cdist = torch.cdist(true_coords, true_coords, p=2)
+
+    losses = weights.unsqueeze(-1) * F.mse_loss(pred_cdist, normalized_cdist, reduction = 'none')
+    loss = losses[mask.to(torch.int64)].mean()
+    return loss
+
