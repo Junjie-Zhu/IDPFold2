@@ -130,9 +130,10 @@ class IDPFoldMultimer(LightningModule):
         out = self.net(batch)
 
         # calculate losses
+        pair_mask = batch['ref_mask'][..., None] * batch['ref_mask'][..., None, :]
         loss_weight = (out['t_hat'] ** 2 + out['sigma_data'] ** 2) / (out['t_hat'] + out['sigma_data']) ** 2
         loss = (weighted_MSE_loss(out['x_out'], batch['label_pos'], loss_weight, batch['ref_mask']) +
-                pairwise_distance_loss(out['x_out'], batch['ref_pos'], loss_weight, batch['ref_mask'][..., None] * batch['ref_mask'][..., None, :]))
+                pairwise_distance_loss(out['x_out'], batch['ref_pos'], loss_weight, pair_mask))
         return loss
 
     def training_step(

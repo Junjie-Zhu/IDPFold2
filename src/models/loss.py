@@ -94,7 +94,7 @@ def weighted_MSE_loss(
     aligned_coords = weighted_rigid_align(pred_coords, true_coords, mask)
 
     losses = weights.unsqueeze(-1) * F.mse_loss(pred_coords, aligned_coords, reduction = 'none') / 3.
-    loss = losses[mask.to(torch.int64)].mean()
+    loss = losses.sum() / mask.sum()
     return loss
 
 
@@ -104,10 +104,20 @@ def pairwise_distance_loss(
         weights,
         mask,
 ):
-    pred_cdist = torch.cdist(pred_coords, pred_coords, p=2)
-    normalized_cdist = torch.cdist(true_coords, true_coords, p=2)
+    pred_cdist = torch.linalg.norm(
+        pred_coords[:, :, None, :] - pred_coords[:, None, :, :], dim=-1)
+    true_cdist = torch.linalg.norm(
+        true_coords[:, :, None, :] - true_coords[:, None, :, :], dim=-1)
 
-    losses = weights.unsqueeze(-1) * F.mse_loss(pred_cdist, normalized_cdist, reduction = 'none')
-    loss = losses[mask.to(torch.int64)].mean()
+    distance_mask = true_cdist < 6.
+    mask = mask * distance_mask
+
+    dist_mat_loss = torch.sum(
+        (true_cdist - pred_cdist) ** 2 * mask,
+        dim=(1, 2, 3))
+
+    dist_mat_loss = weights.squeeze() * dist_mat_loss / torch.sum(mask, dim=(1, 2))
+    loss = dist_mat_loss.mean()
+
     return loss
 
