@@ -27,7 +27,7 @@ sys.path.append(os.path.dirname(__file__))
 try:
     fastfold_layer_norm_cuda = importlib.import_module("fastfold_layer_norm_cuda")
 except ImportError:
-    from protenix.model.layer_norm.torch_ext_compile import compile
+    from src.models.layer_norm.torch_ext_compile import compile
 
     current_dir = os.path.dirname(__file__)
     fastfold_layer_norm_cuda = compile(

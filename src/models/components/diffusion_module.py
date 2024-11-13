@@ -731,7 +731,7 @@ if __name__ == '__main__':
     start = time.time()
 
     # create virtual data
-    x_noisy = torch.ones(5, 64 * 5, 3)
+    x_noisy = torch.ones(5, 64 * 14, 3)
     t_hat_noise_level = torch.ones(5)
 
     input_feature_dict = {
@@ -755,4 +755,4 @@ if __name__ == '__main__':
     s_inputs = torch.ones(5, 64, 1280)
 
     denoised_data = model(x_noisy, t_hat_noise_level, input_feature_dict, s_inputs)
-    print(denoised_data.shape)
+    print(time.time() - start)
