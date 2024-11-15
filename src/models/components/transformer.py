@@ -771,7 +771,7 @@ class AtomAttentionEncoder(nn.Module):
 
             # Broadcast the single and pair embedding from the trunk
             n_token = s.size(-2)
-            c_l = c_l + self.linear_no_bias_s(
+            c_l = c_l.unsqueeze(dim=-3) + self.linear_no_bias_s(
                 self.layernorm_s(
                     broadcast_token_to_atom(
                         x_token=s, atom_to_token_idx=atom_to_token_idx
@@ -785,12 +785,12 @@ class AtomAttentionEncoder(nn.Module):
                 n_keys=self.n_keys,
                 compute_mask=False,
             )  # [..., N_sample, n_blocks, n_queries, n_keys, c_z]
-            p_lm = p_lm + self.linear_no_bias_z(
+            p_lm = p_lm.unsqueeze(dim=-5) + self.linear_no_bias_z(
                 self.layernorm_z(z_local_pairs)
             )  # [..., N_sample, n_blocks, n_queries, n_keys, c_atompair]
 
             # Add the noisy positions
-            q_l = q_l + self.linear_no_bias_r(
+            q_l = q_l.unsqueeze(dim=-3) + self.linear_no_bias_r(
                 r_l
             )  # [..., N_sample, N_atom, c_atom]
 

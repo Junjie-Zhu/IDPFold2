@@ -176,7 +176,7 @@ class EmbeddingModule(nn.Module):
                  num_bins: int = 22,
                  min_bin: float = 1e-5,
                  max_bin: float = 20.0,
-                 self_conditioning: bool = True,
+                 self_conditioning: bool = False,
                  ):
         super(EmbeddingModule, self).__init__()
         pos_embed_size = init_embed_size
@@ -512,16 +512,16 @@ class DiffusionModule(nn.Module):
         N_sample = r_noisy.size(-3)
         assert t_hat_noise_level.size(-1) == N_sample
 
-        N_token = s_inputs.size(-2)
+        # N_token = s_inputs.size(-2)
+        # self_conditioning_ca = []
+        # for b in range(N_sample):
+        #     ca_pos = input_feature_dict['ref_pos'][b][input_feature_dict['ca_mask'][b] == 1]
+        #     padding_length = int(N_token - ca_pos.shape[0])
+        #
+        #     self_conditioning_ca.append(torch.cat(
+        #         [ca_pos, torch.zeros((padding_length, 3)).to(ca_pos.device)], dim=0)
+        #     )
         self_conditioning_ca = []
-        for b in range(N_sample):
-            ca_pos = input_feature_dict['ref_pos'][b][input_feature_dict['ca_mask'][b] == 1]
-            padding_length = int(N_token - ca_pos.shape[0])
-
-            self_conditioning_ca.append(torch.cat(
-                [ca_pos, torch.zeros((padding_length, 3)).to(ca_pos.device)], dim=0)
-            )
-        self_conditioning_ca = torch.stack(self_conditioning_ca)
 
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():

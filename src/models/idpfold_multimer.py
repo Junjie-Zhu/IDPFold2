@@ -1,17 +1,19 @@
 import os
 from typing import Any, Dict, Tuple, Optional
 from random import random
-from copy import deepcopy
 
-import numpy as np
 import torch
-from PIL.ImageOps import scale
 from lightning import LightningModule
 from torchmetrics import MinMetric, MeanMetric
 
+from src.models.components.generator import (
+    InferenceNoiseScheduler,
+    TrainingNoiseSampler,
+    sample_diffusion,
+    sample_diffusion_training,
+)
+from src.utils.torch_utils import autocasting_disable_decorator
 from src.data.components.dataset import convert_atom_name_id
-from src.models.components.transport import R3Diffuser
-from src.models.loss import weighted_MSE_loss, pairwise_distance_loss
 from src.common.pdb_utils import write_pdb_raw
 
 
@@ -96,8 +98,7 @@ class IDPFoldMultimer(LightningModule):
         self.val_loss_best.reset()
 
     def model_step(
-        self, batch, training: Optional[bool] = True
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self, input_feature_dict, label_dict):
         """Perform a single model step on a batch of data.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.
@@ -107,34 +108,20 @@ class IDPFoldMultimer(LightningModule):
             - A tensor of predictions.
             - A tensor of target labels.
         """
+        N_sample = 5
+        s_inputs = input_feature_dict["seq_emb"]
 
-        batch_size = batch['seq_mask'].shape[0]
-        noise_schedule = (self.net.P_mean + self.net.P_std * torch.randn((batch_size,), device=batch[
-            'seq_mask'].device)).exp() * self.net.sigma_data
-        noise = torch.randn_like(batch['ref_pos']) * noise_schedule[:, None, None]
-
-        batch['ref_pos'] += noise
-
-        gamma = torch.zeros_like(noise_schedule).to(noise_schedule.device)
-        gamma[noise_schedule > self.net.gamma_min] = self.net.gamma0
-        t_hat = noise_schedule * (gamma + 1)
-
-        batch['t_hat'] = t_hat
-
-        # probably add self-conditioning (recycle once)
-        if self.net.embedding_module.self_conditioning and random() > 0.5:
-            with torch.no_grad():
-                batch['ref_pos'] = self.net(batch)['x_out']
-
-        # feedforward
-        out = self.net(batch)
-
-        # calculate losses
-        pair_mask = batch['ref_mask'][..., None] * batch['ref_mask'][..., None, :]
-        loss_weight = (out['t_hat'] ** 2 + out['sigma_data'] ** 2) / (out['t_hat'] + out['sigma_data']) ** 2
-        loss = (weighted_MSE_loss(out['x_out'], batch['label_pos'], loss_weight, batch['ref_mask']) +
-                pairwise_distance_loss(out['x_out'], batch['ref_pos'], loss_weight, pair_mask))
-        return loss
+        _, x_denoised, x_noise_level = autocasting_disable_decorator(
+            True
+        )(sample_diffusion_training)(
+            noise_sampler=self.train_noise_sampler,
+            denoise_net=self.diffusion_module,
+            label_dict=label_dict,
+            input_feature_dict=input_feature_dict,
+            s_inputs=s_inputs,
+            N_sample=N_sample,
+            diffusion_chunk_size=None,
+        )
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int

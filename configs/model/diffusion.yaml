@@ -15,65 +15,34 @@ scheduler:
 
 net:
   _target_: src.models.components.diffusion_module.DiffusionModule
-  'training': True
-  'embedding_channel': 1280
-  'token_channel': 256
-  'diffusion_token_channel': 384
-  'embedding_module':
-    _target_: src.models.components.embedder.EmbeddingModule
-    init_embed_size: 256
-    node_embed_size: 256
-    edge_embed_size: 128
-    num_bins: 22
-    min_bin: 1e-5
-    max_bin: 20.0
-    self_conditioning: true
-# 'diffusion_conditioning':
-#     _target_: src.models.components.diffusion_module.DiffusionConditioning
-#     'token_channel': 384
-#     'token_pair_channel': 128
-  'atom_attention_encoder':
-    _target_: src.models.components.diffusion_module.AtomAttentionEncoder
-    'in_token_channel': 256  # the same as token_channel
-    'out_token_channel': 384  # the same as diffusion_token_channel
-    'token_pair_channel': 128
-    'atom_channel': 128
-    'atom_pair_channel': 16
-    'use_dense_mode': True
-    'atom_transformer':
-      _target_: src.models.components.diffusion_module.AtomTransformer
-      'n_query': 32
-      'n_key': 128
-      'diffusion_transformer':
-        _target_: src.models.components.diffusion_module.DiffusionTransformer
-        'a_channel': 128  # the same as atom_channel
-        's_channel': 128  # the same as atom_channel
-        'z_channel': 16  # the same as atom_pair_channel
-        'n_block': 3
-        'n_head': 4
-  'diffusion_transformer_main':
-    _target_: src.models.components.diffusion_module.DiffusionTransformer
-    'a_channel': 384  # the same as diffusion_token_channel
-    's_channel': 256  # the same as token_channel
-    'z_channel': 128  # the same as token_pair_channel
-    'n_block': 8
-    'n_head': 16
-  'atom_attention_decoder':
-    _target_: src.models.components.diffusion_module.AtomAttentionDecoder
-    'in_token_channel': 384  # the same as diffusion_token_channel
-    'atom_channel': 128
-    'final_zero_init': False,
-    'atom_transformer':  # the same as that in atom_attention_encoder
-      _target_: src.models.components.diffusion_module.AtomTransformer
-      'n_query': 32
-      'n_key': 128
-      'diffusion_transformer':
-        _target_: src.models.components.diffusion_module.DiffusionTransformer
-        'a_channel': 128  # the same as atom_channel
-        's_channel': 128  # the same as atom_channel
-        'z_channel': 16  # the same as atom_pair_channel
-        'n_block': 3
-        'n_head': 4
+  use_fine_grained_checkpoint: True,
+  sigma_data: 16.,
+  c_token: 768,
+  c_atom: 128,
+  c_atompair: 16,
+  c_z: 128,
+  c_s: 384,
+  c_s_inputs: 1280,
+  initialization:
+    "zero_init_condition_transition": False,
+    "zero_init_atom_encoder_residual_linear": False,
+    "he_normal_init_atom_encoder_small_mlp": False,
+    "he_normal_init_atom_encoder_output": False,
+    "glorot_init_self_attention": False,
+    "zero_init_adaln": True,
+    "zero_init_residual_condition_transition": False,
+    "zero_init_dit_output": True,
+    "zero_init_atom_decoder_linear": False,
+  atom_encoder:
+    "n_blocks": 3,
+    "n_heads": 4,
+  transformer:
+    "n_blocks": 24,
+    "n_heads": 16,
+  atom_decoder:
+    "n_blocks": 3,
+    "n_heads": 4,
+  blocks_per_ckpt: 1
 
 # default hparam for sampling s2011
 inference:

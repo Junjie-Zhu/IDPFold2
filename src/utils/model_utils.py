@@ -160,7 +160,7 @@ def uniform_random_rotation(N_sample: int = 1) -> torch.Tensor:
         N_sample (int, optional): the total number of augmentation. Defaults to 1.
 
     Returns:
-        torch.Tensor: N_sample rot matrics
+        torch.Tensor: N_sample rot metrics
             [N_sample, 3, 3]
     """
     rotation = Rotation.random(num=N_sample)
