@@ -12,6 +12,9 @@ from src.models.components.generator import (
     sample_diffusion,
     sample_diffusion_training,
 )
+from src.models.loss import AllLosses
+from src.models.optimizer import get_optimizer, get_lr_scheduler
+from src.models.ema import EMAWrapper
 from src.utils.torch_utils import autocasting_disable_decorator
 from src.data.components.dataset import convert_atom_name_id
 from src.common.pdb_utils import write_pdb_raw
@@ -53,10 +56,9 @@ class IDPFoldMultimer(LightningModule):
     def __init__(
         self,
         net: torch.nn.Module,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler,
-        compile: bool,
-        inference: Optional[Dict[str, Any]] = None,
+        ema_config: Dict[str, Any],
+        optimizer_config: Dict[str, Any],
+        lr_scheduler_config: Dict[str, Any],
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
@@ -72,6 +74,16 @@ class IDPFoldMultimer(LightningModule):
 
         # network and diffusion module
         self.net = net
+        self.loss = AllLosses()
+        self.ema_wrapper = EMAWrapper(
+            self.net,
+            ema_config.ema_decay,
+            ema_config.ema_mutable_param_keywords,
+        )
+        self.ema_wrapper.register()
+        self.optimizer = get_optimizer(optimizer_config, self.net)
+        self.init_scheduler()
+        self.lr_scheduler_config = lr_scheduler_config
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
@@ -80,6 +92,9 @@ class IDPFoldMultimer(LightningModule):
 
         # for tracking best so far validation accuracy
         self.val_loss_best = MinMetric()
+
+    def init_scheduler(self, **kwargs):
+        self.lr_scheduler = get_lr_scheduler(self.lr_scheduler_config, self.optimizer, **kwargs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`. 
@@ -123,6 +138,13 @@ class IDPFoldMultimer(LightningModule):
             diffusion_chunk_size=None,
         )
 
+        pred_dict = {
+            "coordinate": x_denoised,
+            "noise_level": x_noise_level,
+        }
+        loss = self.loss(input_feature_dict, pred_dict, label_dict)
+        return loss
+
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
@@ -138,7 +160,7 @@ class IDPFoldMultimer(LightningModule):
         # update and log metrics
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        
+
         # return loss or backpropagation will fail
         return loss
 
@@ -253,19 +275,10 @@ class IDPFoldMultimer(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
-        if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "monitor": "val/loss",
-                    "interval": "epoch",
-                    "frequency": 1,
-                },
-            }
-        return {"optimizer": optimizer}
+        return {
+            "optimizer": self.optimizer,
+            "lr_scheduler": self.lr_scheduler,
+        }
 
 
 if __name__ == "__main__":

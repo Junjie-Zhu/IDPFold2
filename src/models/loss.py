@@ -36,17 +36,11 @@ class MSELoss(nn.Module):
     def __init__(
         self,
         weight_mse: float = 1 / 3,
-        weight_dna: float = 5.0,
-        weight_rna=5.0,
-        weight_ligand=10.0,
         eps=1e-6,
         reduction: str = "mean",
     ) -> None:
         super(MSELoss, self).__init__()
         self.weight_mse = weight_mse
-        self.weight_dna = weight_dna
-        self.weight_rna = weight_rna
-        self.weight_ligand = weight_ligand
         self.eps = eps
         self.reduction = reduction
 
@@ -55,9 +49,6 @@ class MSELoss(nn.Module):
         pred_coordinate: torch.Tensor,
         true_coordinate: torch.Tensor,
         coordinate_mask: torch.Tensor,
-        is_dna: torch.Tensor,
-        is_rna: torch.Tensor,
-        is_ligand: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """compute weighted rigid alignment results
 
@@ -78,12 +69,13 @@ class MSELoss(nn.Module):
                 [N_atom] or [..., N_sample, N_atom]
         """
         N_sample = pred_coordinate.size(-3)
-        weight = (
-            1
-            + self.weight_dna * is_dna
-            + self.weight_rna * is_rna
-            + self.weight_ligand * is_ligand
-        )  # [N_atom] or [..., N_atom]
+        # weight = (
+        #     1
+        #     + self.weight_dna * is_dna
+        #     + self.weight_rna * is_rna
+        #     + self.weight_ligand * is_ligand
+        # )  # [N_atom] or [..., N_atom]
+        weight = torch.ones_like(coordinate_mask)
 
         # Apply coordinate_mask
         weight = weight * coordinate_mask  # [N_atom] or [..., N_atom]
@@ -122,9 +114,6 @@ class MSELoss(nn.Module):
         pred_coordinate: torch.Tensor,
         true_coordinate: torch.Tensor,
         coordinate_mask: torch.Tensor,
-        is_dna: torch.Tensor,
-        is_rna: torch.Tensor,
-        is_ligand: torch.Tensor,
         per_sample_scale: torch.Tensor = None,
     ) -> torch.Tensor:
         """MSELoss
@@ -152,9 +141,6 @@ class MSELoss(nn.Module):
                 pred_coordinate=pred_coordinate,
                 true_coordinate=true_coordinate,
                 coordinate_mask=coordinate_mask,
-                is_dna=is_dna,
-                is_rna=is_rna,
-                is_ligand=is_ligand,
             )
 
         # Calculate MSE loss
@@ -542,74 +528,79 @@ class BondLoss(nn.Module):
         return bond_loss
 
 
-def calculate_losses(
-        feat_dict,
-        pred_dict,
-        label_dict
-):
-    loss_fns = {}
-    if self.configs.loss.diffusion_lddt_loss_dense:
-        loss_fns.update(
-            {
-                "smooth_lddt_loss": lambda: self.smooth_lddt_loss.dense_forward(
-                    pred_coordinate=pred_dict["coordinate"],
-                    true_coordinate=label_dict["coordinate"],
-                    lddt_mask=label_dict["lddt_mask"],
-                    diffusion_chunk_size=self.configs.loss.diffusion_lddt_chunk_size,
-                )  # it's faster is not OOM
-            }
-        )
-    elif self.configs.loss.diffusion_sparse_loss_enable:
-        loss_fns.update(
-            {
-                "smooth_lddt_loss": lambda: self.smooth_lddt_loss.sparse_forward(
-                    pred_coordinate=pred_dict["coordinate"],
-                    true_coordinate=label_dict["coordinate"],
-                    lddt_mask=label_dict["lddt_mask"],
-                    diffusion_chunk_size=self.configs.loss.diffusion_lddt_chunk_size,
-                )
-            }
-        )
-    else:
-        loss_fns.update(
-            {
-                "smooth_lddt_loss": lambda: self.smooth_lddt_loss(
-                    pred_distance=pred_dict["distance"],
-                    true_distance=label_dict["distance"],
-                    distance_mask=label_dict["distance_mask"],
-                    lddt_mask=label_dict["lddt_mask"],
-                    diffusion_chunk_size=self.configs.loss.diffusion_lddt_chunk_size,
-                )
-            }
-        )
-    loss_fns.update(
-        {
-            "bond_loss": lambda: (
-                self.bond_loss.sparse_forward(
-                    pred_coordinate=pred_dict["coordinate"],
-                    true_coordinate=label_dict["coordinate"],
-                    distance_mask=label_dict["distance_mask"],
-                    bond_mask=feat_dict["bond_mask"],
-                    per_sample_scale=diffusion_per_sample_scale,
-                )
-                if self.configs.loss.diffusion_sparse_loss_enable
-                else self.bond_loss(
-                    pred_distance=pred_dict["distance"],
-                    true_distance=label_dict["distance"],
-                    distance_mask=label_dict["distance_mask"],
-                    bond_mask=feat_dict["bond_mask"],
-                    per_sample_scale=diffusion_per_sample_scale,
-                    diffusion_chunk_size=self.configs.loss.diffusion_bond_chunk_size,
-                )
-            ),
-            "mse_loss": lambda: self.mse_loss(
-                pred_coordinate=pred_dict["coordinate"],
-                true_coordinate=label_dict["coordinate"],
-                coordinate_mask=label_dict["coordinate_mask"],
-                is_rna=feat_dict["is_rna"],
-                is_dna=feat_dict["is_dna"],
-                is_ligand=feat_dict["is_ligand"],
-                per_sample_scale=diffusion_per_sample_scale,
-            ),
-        }
-    )
+class AllLosses(nn.Module):
+    def __init__(self,
+                 weight_mse: float = 1 / 3,
+                 eps=1e-6,
+                 sigma_data=16.,
+                 diffusion_sparse_loss_enable: bool = False):
+        self.mse_loss = MSELoss(weight_mse=weight_mse, eps=eps)
+        self.bond_loss = BondLoss(eps=eps)
+        self.sigma_data = sigma_data
+        self.diffusion_sparse_loss_enable = diffusion_sparse_loss_enable
+
+    def calculate_losses(
+            self,
+            feat_dict,
+            pred_dict,
+            label_dict
+    ):
+        diffusion_per_sample_scale = (
+                                             pred_dict["noise_level"] ** 2 + self.configs.sigma_data ** 2
+                                     ) / (self.sigma_data * pred_dict["noise_level"]) ** 2
+
+        # loss_fns = {}
+        # loss_fns.update(
+        #     {
+        #         "bond_loss": lambda: (
+        #             self.bond_loss.sparse_forward(
+        #                 pred_coordinate=pred_dict["coordinate"],
+        #                 true_coordinate=label_dict["coordinate"],
+        #                 distance_mask=label_dict["distance_mask"],
+        #                 bond_mask=feat_dict["bond_mask"],
+        #                 per_sample_scale=diffusion_per_sample_scale,
+        #             )
+        #             if self.configs.loss.diffusion_sparse_loss_enable
+        #             else self.bond_loss(
+        #                 pred_distance=pred_dict["distance"],
+        #                 true_distance=label_dict["distance"],
+        #                 distance_mask=label_dict["distance_mask"],
+        #                 bond_mask=feat_dict["bond_mask"],
+        #                 per_sample_scale=diffusion_per_sample_scale,
+        #                 diffusion_chunk_size=self.diffusion_bond_chunk_size,
+        #             )
+        #         ),
+        #         "mse_loss": lambda: self.mse_loss(
+        #             pred_coordinate=pred_dict["coordinate"],
+        #             true_coordinate=label_dict["coordinate"],
+        #             coordinate_mask=label_dict["coordinate_mask"],
+        #             per_sample_scale=diffusion_per_sample_scale,
+        #         ),
+        #     }
+        # )
+        #
+        # cum_loss = 0
+        # for loss_name, loss_fn in loss_fns.items():
+        #     loss_outputs = loss_fn()
+        #     if isinstance(loss_outputs, tuple):
+        #         loss, metrics = loss_outputs
+        #     else:
+        #         assert isinstance(loss_outputs, torch.Tensor)
+        #         loss, metrics = loss_outputs, {}
+        #     cum_loss += loss
+        loss_fn = lambda: self.mse_loss(
+            pred_coordinate=pred_dict["coordinate"],
+            true_coordinate=label_dict["coordinate"],
+            coordinate_mask=label_dict["coordinate_mask"],
+            per_sample_scale=diffusion_per_sample_scale,
+        ),
+        loss_outputs = loss_fn()
+        if isinstance(loss_outputs, tuple):
+            loss, metrics = loss_outputs
+        else:
+            assert isinstance(loss_outputs, torch.Tensor)
+            loss, metrics = loss_outputs, {}
+        return loss
+
+    def forward(self, feat_dict, pred_dict, label_dict):
+        return self.calculate_losses(feat_dict, pred_dict, label_dict)
