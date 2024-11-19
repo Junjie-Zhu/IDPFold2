@@ -1,48 +1,64 @@
 _target_: src.models.idpfold_multimer.IDPFoldMultimer
 
-optimizer:
-  _target_: torch.optim.Adam
-  _partial_: true
-  lr: 1e-4
-  weight_decay: 0.0
-
-scheduler:
-  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
-  _partial_: true
-  mode: min
-  factor: 0.1
-  patience: 10
-
 net:
   _target_: src.models.components.diffusion_module.DiffusionModule
-  use_fine_grained_checkpoint: True,
-  sigma_data: 16.,
-  c_token: 768,
-  c_atom: 128,
-  c_atompair: 16,
-  c_z: 128,
-  c_s: 384,
-  c_s_inputs: 1280,
+  use_fine_grained_checkpoint: True
+  sigma_data: 16.
+  c_token: 768
+  c_atom: 128
+  c_atompair: 16
+  c_z: 128
+  c_s: 384
+  c_s_inputs: 1280
   initialization:
-    "zero_init_condition_transition": False,
-    "zero_init_atom_encoder_residual_linear": False,
-    "he_normal_init_atom_encoder_small_mlp": False,
-    "he_normal_init_atom_encoder_output": False,
-    "glorot_init_self_attention": False,
-    "zero_init_adaln": True,
-    "zero_init_residual_condition_transition": False,
-    "zero_init_dit_output": True,
-    "zero_init_atom_decoder_linear": False,
+    zero_init_condition_transition: False
+    zero_init_atom_encoder_residual_linear: False
+    he_normal_init_atom_encoder_small_mlp: False
+    he_normal_init_atom_encoder_output: False
+    glorot_init_self_attention: False
+    zero_init_adaln: True
+    zero_init_residual_condition_transition: False
+    zero_init_dit_output: True
+    zero_init_atom_decoder_linear: False
   atom_encoder:
-    "n_blocks": 3,
-    "n_heads": 4,
+    n_blocks: 3
+    n_heads: 4
   transformer:
-    "n_blocks": 24,
-    "n_heads": 16,
+    n_blocks: 24
+    n_heads: 16
   atom_decoder:
-    "n_blocks": 3,
-    "n_heads": 4,
+    n_blocks: 3
+    n_heads: 4
   blocks_per_ckpt: 1
+loss:
+  __target__: src.models.loss.AllLosses
+  diffusion_lddt_loss_dense: True
+  diffusion_sparse_loss_enable: True
+ema_config:
+  ema_decay: -1.0
+  eval_ema_only": False  # whether wandb only tracking ema checkpoint metrics
+  ema_mutable_param_keywords: [ "" ]
+optimizer_config:
+  lr: 0.0018
+  lr_scheduler: "af3"
+  warmup_steps: 10
+  max_steps: 100000
+  min_lr_ratio: 0.1
+  decay_every_n_steps: 50000
+  grad_clip_norm: 10
+  # Optim - Adam
+  adam:
+    beta1: 0.9
+    beta2: 0.95
+    weight_decay: 1e-8
+    lr: 0.0018
+    use_adamw: False
+  # Optim - LRScheduler
+  af3_lr_scheduler:
+    warmup_steps: 10
+    decay_every_n_steps: 50000
+    decay_factor: 0.95
+    lr: 0.0018
 
 # default hparam for sampling s2011
 inference:

@@ -28,6 +28,7 @@ model:
     lr: 1e-4
 
 trainer:
+  precision: bf16
   min_epochs: 500
   max_epochs: 1000
   devices: 6

@@ -1,4 +1,5 @@
 import os
+from contextlib import nullcontext
 from typing import Any, Dict, Tuple, Optional
 from random import random
 
@@ -12,8 +13,7 @@ from src.models.components.generator import (
     sample_diffusion,
     sample_diffusion_training,
 )
-from src.models.loss import AllLosses
-from src.models.optimizer import get_optimizer, get_lr_scheduler
+from src.models.optimizer import get_optimizer, get_lr_scheduler, is_loss_nan_check
 from src.models.ema import EMAWrapper
 from src.utils.torch_utils import autocasting_disable_decorator
 from src.data.components.dataset import convert_atom_name_id
@@ -56,6 +56,7 @@ class IDPFoldMultimer(LightningModule):
     def __init__(
         self,
         net: torch.nn.Module,
+        loss: torch.nn.Module,
         ema_config: Dict[str, Any],
         optimizer_config: Dict[str, Any],
         lr_scheduler_config: Dict[str, Any],
@@ -74,7 +75,7 @@ class IDPFoldMultimer(LightningModule):
 
         # network and diffusion module
         self.net = net
-        self.loss = AllLosses()
+        self.loss = loss
 
         if ema_config.get("ema_decay", -1) > 0:
             assert ema_config.ema_decay < 1
@@ -84,8 +85,12 @@ class IDPFoldMultimer(LightningModule):
                 ema_config.ema_mutable_param_keywords,
             )
         self.ema_wrapper.register()
+        torch.cuda.empty_cache()
+
         self.optimizer = get_optimizer(optimizer_config, self.net)
         self.init_scheduler()
+
+        self.ema_config = ema_config
         self.lr_scheduler_config = lr_scheduler_config
 
         # for averaging loss across batches
@@ -149,7 +154,7 @@ class IDPFoldMultimer(LightningModule):
         return loss
 
     def training_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self, input_feature_dict, label_dict, batch_idx: int
     ) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
@@ -158,7 +163,7 @@ class IDPFoldMultimer(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
-        loss = self.model_step(batch)
+        loss = self.model_step(input_feature_dict, label_dict)
 
         # update and log metrics
         self.train_loss(loss)
@@ -167,22 +172,32 @@ class IDPFoldMultimer(LightningModule):
         # return loss or backpropagation will fail
         return loss
 
+    def on_train_batch_end(self, outputs, batch, batch_idx, dataloader_idx) -> None:
+        """Lightning hook that is called after every training batch."""
+        if hasattr(self, "ema_wrapper"):
+            self.ema_wrapper.update()
+
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a training epoch ends."
         pass
 
-    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def validation_step(self, input_feature_dict, label_dict, batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
             labels.
         :param batch_idx: The index of the current batch.
         """
-        loss = self.model_step(batch, training=False)
+        loss = self.model_step(input_feature_dict, label_dict)
 
         # update and log metrics
         self.val_loss(loss) # update
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+
+    def on_validation_epoch_end(self) -> None:
+        "Lightning hook that is called when a validation epoch starts."
+        if hasattr(self, "ema_wrapper"):
+            self.ema_wrapper.apply_shadow()
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
@@ -190,6 +205,8 @@ class IDPFoldMultimer(LightningModule):
         self.val_loss_best(_vall)  # update best so far val acc
         # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
         # otherwise metric would be reset by lightning after each epoch
+        if hasattr(self, "ema_wrapper"):
+            self.ema_wrapper.restore()
         self.log("val/loss_best", self.val_loss_best.compute(), sync_dist=True, prog_bar=True)
 
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
@@ -256,6 +273,20 @@ class IDPFoldMultimer(LightningModule):
             rep_index += 1
 
         return output_dict
+
+    def state_dict(self):
+        # Include EMA parameters in the state_dict
+        state = super().state_dict()
+        if hasattr(self, "ema_wrapper"):
+            state['ema_params'] = {k: v.clone() for k, v in self.ema_wrapper.ema_params.items()}
+        return state
+
+    def load_state_dict(self, state_dict):
+        # Load EMA parameters from the state_dict
+        if 'ema_params' in state_dict:
+            self.ema.ema_params = state_dict['ema_params']
+            del state_dict['ema_params']  # Remove EMA from the standard model state_dict
+        super().load_state_dict(state_dict)
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
