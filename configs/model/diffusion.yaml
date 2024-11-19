@@ -59,6 +59,7 @@ optimizer_config:
     decay_every_n_steps: 50000
     decay_factor: 0.95
     lr: 0.0018
+diffusion_sample: 8
 
 # default hparam for sampling s2011
 inference:

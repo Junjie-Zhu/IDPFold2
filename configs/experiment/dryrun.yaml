@@ -21,17 +21,21 @@ callbacks:
 
 
 data:
-  batch_size: 24
+  batch_size: 16
 
 model:
-  optimizer:
-    lr: 1e-4
+  ema_config:
+    ema_decay: 0.999
+  optimizer_config:
+    lr: 0.001
+    warmup_steps: 5000
+    max_steps: 20000000
 
 trainer:
   precision: bf16
-  min_epochs: 500
+  min_epochs: 750
   max_epochs: 1000
-  devices: 6
+  devices: 4
   # gradient_clip_val: 0.5
 
 

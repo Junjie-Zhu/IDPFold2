@@ -60,6 +60,7 @@ class IDPFoldMultimer(LightningModule):
         ema_config: Dict[str, Any],
         optimizer_config: Dict[str, Any],
         lr_scheduler_config: Dict[str, Any],
+        diffusion_sample: int,
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
@@ -92,6 +93,7 @@ class IDPFoldMultimer(LightningModule):
 
         self.ema_config = ema_config
         self.lr_scheduler_config = lr_scheduler_config
+        self.N_sample = diffusion_sample
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
@@ -131,7 +133,7 @@ class IDPFoldMultimer(LightningModule):
             - A tensor of predictions.
             - A tensor of target labels.
         """
-        N_sample = 5
+        N_sample = self.N_sample
         s_inputs = input_feature_dict["seq_emb"]
 
         _, x_denoised, x_noise_level = autocasting_disable_decorator(
