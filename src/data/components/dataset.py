@@ -37,14 +37,26 @@ element_atomic_number = [
 ]
 
 
-def convert_atom_id_name(atom_id: str):
+def convert_atom_id_name(atom_names: list[str]):
     """
         Converts unique atom_id names to integer of atom_name. need to be padded to length 4.
         Each character is encoded as ord(c) - 32
     """
-    atom_id_pad = atom_id.ljust(4, ' ')
-    assert len(atom_id_pad) == 4
-    return [ord(c) - 32 for c in atom_id_pad]
+    onehot_dict = {}
+    for index, key in enumerate(range(64)):
+        onehot = [0] * 64
+        onehot[index] = 1
+        onehot_dict[key] = onehot
+
+    mol_encode = []
+    for atom_name in atom_names:
+        # [4, 64]
+        atom_encode = []
+        for name_str in atom_name.ljust(4):
+            atom_encode.append(onehot_dict[ord(name_str) - 32])
+        mol_encode.append(atom_encode)
+    onehot_tensor = torch.Tensor(mol_encode)
+    return onehot_tensor
 
 
 def convert_atom_name_id(atom_name: List[int]):
@@ -58,11 +70,15 @@ def convert_atom_name_id(atom_name: List[int]):
 
 def get_atom_features(data_object):
 
-    atom_mask = data_object['atom_mask']
+    ccd_atom14 = data_object['ccd_atom14']
 
+    atom_mask = data_object['atom_mask']
     atom_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
+
+    ref_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
     token2atom_map = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
     atom_elements = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
+    atom_charge = torch.zeros(int(atom_mask.sum()), dtype=torch.float32)
 
     index_start, token = 0, 0
     atom_type = []
@@ -75,34 +91,48 @@ def get_atom_features(data_object):
         atom_index = torch.where(residues)[0]
         atom_positions[index_start:index_end] = residue_positions[atom_index]
         atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int64)
+
+        ref_positions[index_start:index_end] = ccd_atom14[data_object['aatype'][token]]['coord'][atom_index]
+        # atom_charge[index_start:index_end] = ccd_atom14[data_object['aatype'][token]]['charge'][atom_index]
+
         atom_type.extend([atom_types[i] for i in atom_index])
 
         index_start = index_end
         token += 1
 
     atom_space_uid = token2atom_map
-    atom_name_char = torch.tensor([convert_atom_id_name(atom_id) for atom_id in atom_type], dtype=torch.int64)
-    ca_mask = torch.tensor([1 if atom == 'CA' else 0 for atom in atom_type], dtype=torch.float)
+    atom_name_char = convert_atom_id_name(atom_type)
+
+    onehot_dict = {}
+    for index, key in enumerate(range(32)):
+        onehot = [0] * 64
+        onehot[index] = 1
+        onehot_dict[key] = onehot
+
+    onehot_encoded_data = [onehot_dict[item] for item in atom_elements]
+    atom_elements = torch.Tensor(onehot_encoded_data)
 
     output_batch = {
-        'ref_pos': atom_positions,
-        'label_pos': atom_positions,
-        'ref_token2atom_idx': token2atom_map,
-        'all_atom_pos_mask': torch.ones_like(atom_positions[:, 0]).squeeze(),
-        'ca_mask': ca_mask,
+        'atom_to_token_idx': token2atom_map,
 
         'residue_index': data_object['residue_index'],
         'seq_mask': torch.ones_like(data_object['residue_index'], dtype=torch.float32),
         'aatype': data_object['aatype'],
         'seq_emb': data_object['seq_emb'],
 
+        'ref_pos': atom_positions,
         'ref_space_uid': atom_space_uid,
         'ref_atom_name_chars': atom_name_char,
         'ref_element': atom_elements,
         'ref_mask': torch.ones_like(atom_elements, dtype=torch.float)
     }
 
-    return output_batch
+    label_batch = {
+        'coordinate': atom_positions,
+        'coordinate_mask': torch.ones_like(atom_positions[:, 0]).squeeze(),
+    }
+
+    return output_batch, label_batch
 
 
 class ProteinFeatureTransform:
@@ -145,13 +175,13 @@ class ProteinFeatureTransform:
         chain_feats = self.map_to_tensors(chain_feats)
 
         # transform to all-atom features
-        chain_feats = get_atom_features(chain_feats)
+        chain_feats, label_dict = get_atom_features(chain_feats)
 
         # Add extra features from AF2 
         # chain_feats = self.protein_data_transform(chain_feats)
         
         # ** refer to line 170 in pdb_data_loader.py **
-        return chain_feats
+        return chain_feats, label_dict
     
     @staticmethod
     def patch_feats(chain_feats):
@@ -325,7 +355,11 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
         self.suffix = suffix
         self.transform = transform
         self.training = training  # not implemented yet
-        
+
+        # get absolute path
+        cwd = os.getcwd()
+        with open(os.path.join(cwd, 'ccd_atom14.pkl'), 'rb') as f:
+            self.ccd_atom14 = pickle.load(f)
     
     @property    
     def num_samples(self):
@@ -367,9 +401,13 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
                     } # 33 is for ESM650M
                 )
 
+        data_object.update(
+            {'ccd_atom14': self.ccd_atom14}
+        )
+
         # Apply data transform
         if self.transform is not None:
-            data_object = self.transform(data_object)
+            data_object, label_object = self.transform(data_object)
             
             # fixed_mask = torch.zeros_like(data_object['ref_mask'], dtype=torch.float)
             # # randomly mask 20% of the atoms
@@ -378,7 +416,7 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
             # data_object['fixed_mask'] = fixed_mask
 
         data_object['accession_code'] =  accession_code
-        return data_object  # dict of arrays
+        return data_object, label_object  # dict of arrays
 
     
 

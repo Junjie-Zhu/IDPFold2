@@ -567,7 +567,7 @@ class AtomAttentionEncoder(nn.Module):
         self.input_feature = {
             "ref_pos": 3,
             "ref_mask": 1,
-            "ref_element": 128,
+            "ref_element": 32,
             "ref_atom_name_chars": 4 * 64,
         }
         self.linear_no_bias_f = LinearNoBias(
