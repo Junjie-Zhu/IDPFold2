@@ -120,7 +120,7 @@ def centre_random_augmentation(
         )
     else:
         center = (x_input_coords * mask.unsqueeze(dim=-1)).sum(dim=-2) / (
-            mask.sum(dim=-1) + eps
+            mask.sum(dim=-1, keepdim=True) + eps
         )
         x_input_coords = x_input_coords - center.unsqueeze(dim=-2)
 

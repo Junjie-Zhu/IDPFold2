@@ -75,11 +75,14 @@ class IDPFoldMultimer(LightningModule):
         # network and diffusion module
         self.net = net
         self.loss = AllLosses()
-        self.ema_wrapper = EMAWrapper(
-            self.net,
-            ema_config.ema_decay,
-            ema_config.ema_mutable_param_keywords,
-        )
+
+        if ema_config.get("ema_decay", -1) > 0:
+            assert ema_config.ema_decay < 1
+            self.ema_wrapper = EMAWrapper(
+                self.net,
+                ema_config.ema_decay,
+                ema_config.ema_mutable_param_keywords,
+            )
         self.ema_wrapper.register()
         self.optimizer = get_optimizer(optimizer_config, self.net)
         self.init_scheduler()
@@ -130,7 +133,7 @@ class IDPFoldMultimer(LightningModule):
             True
         )(sample_diffusion_training)(
             noise_sampler=self.train_noise_sampler,
-            denoise_net=self.diffusion_module,
+            denoise_net=self.net,
             label_dict=label_dict,
             input_feature_dict=input_feature_dict,
             s_inputs=s_inputs,

@@ -251,13 +251,13 @@ class EmbeddingModule(nn.Module):
             node_embed: [B, N, D_node]
             edge_embed: [B, N, N, D_edge]
         """
-        B, L = residue_idx.shape
+        B, N_sample, L = plm_embedding.shape[:3]
         fixed_mask = fixed_mask[..., None].float()
         node_feats = []
         pair_feats = []
 
         # configure time embedding
-        t_embed = torch.tile(self.fourier_embedding(0.25 * torch.log(t_hat / self.sigma_data))[:, None, :], (1, L, 1))
+        t_embed = torch.tile(self.fourier_embedding(0.25 * torch.log(t_hat / self.sigma_data))[:, :, None, :], (1, 1, L, 1))
         t_embed = self.plm_embed(
             torch.cat([t_embed, plm_embedding], dim=-1)
         )
@@ -266,27 +266,27 @@ class EmbeddingModule(nn.Module):
 
         # make pair embedding from 1d time feats
         concat_1d = torch.cat(
-            [torch.tile(t_embed[:, :, None, :], (1, 1, L, 1)),
-             torch.tile(t_embed[:, None, :, :], (1, L, 1, 1))],
-            dim=-1).float().reshape([B, L ** 2, -1])
+            [torch.tile(t_embed[:, :, :, None, :], (1, 1, 1, L, 1)),
+             torch.tile(t_embed[:, :, None, :, :], (1, 1, L, 1, 1))],
+            dim=-1).float().reshape([B, N_sample, L ** 2, -1])
         pair_feats.append(concat_1d)
 
         # positional embedding
-        node_feats.append(self.position_embed(residue_idx))
+        node_feats.append(self.position_embed(residue_idx).expand([B, N_sample, L, -1]))
 
         # relative 2d positional embedding
-        rel_seq_offset = residue_idx[:, :, None] - residue_idx[:, None, :]
-        rel_seq_offset = rel_seq_offset.reshape([B, L ** 2])
-        pair_feats.append(self.position_embed(rel_seq_offset))
+        rel_seq_offset = residue_idx[:, :, :, None] - residue_idx[:, :, None, :]
+        rel_seq_offset = rel_seq_offset.reshape([B, 1, L ** 2])
+        pair_feats.append(self.position_embed(rel_seq_offset).expand([B, N_sample, L ** 2, -1]))
 
         # self-conditioning distogram of C-alpha atoms
         if self.self_conditioning:
             ca_dist = self.distogram_embed(self_conditioning_ca)
-            pair_feats.append(ca_dist.reshape([B, L ** 2, -1]))
+            pair_feats.append(ca_dist.reshape([B, N_sample, L ** 2, -1]))
 
         node_embed = self.node_embed(torch.cat(node_feats, dim=-1).float())
         edge_embed = self.edge_embed(torch.cat(pair_feats, dim=-1).float())
-        edge_embed = edge_embed.reshape([B, L, L, -1])
+        edge_embed = edge_embed.reshape([B, N_sample, L, L, -1])
         return node_embed, edge_embed
 
 
@@ -533,17 +533,17 @@ class DiffusionModule(nn.Module):
             checkpoint_fn = get_checkpoint_fn()
             s_single, z_pair = checkpoint_fn(
                 self.diffusion_conditioning,
-                input_feature_dict["residue_index"],
+                input_feature_dict["residue_index"].unsqueeze(1),
                 t_hat_noise_level,
-                input_feature_dict["seq_mask"],
+                input_feature_dict["seq_mask"].unsqueeze(1).expand(-1, N_sample, -1),
                 s_inputs,
                 self_conditioning_ca,
             )
         else:
             s_single, z_pair = self.diffusion_conditioning(
-                input_feature_dict["residue_index"],
+                input_feature_dict["residue_index"].unsqueeze(1),
                 t_hat_noise_level,
-                input_feature_dict["seq_mask"],
+                input_feature_dict["seq_mask"].unsqueeze(1).expand(-1, N_sample, -1),
                 s_inputs,
                 self_conditioning_ca,
             )  # [..., N_sample, N_token, c_s], [..., N_token, N_token, c_z]
