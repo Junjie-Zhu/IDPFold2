@@ -1,6 +1,7 @@
 import pickle
 
 import numpy as np
+import torch
 
 from protenix.data.ccd import get_ccd_ref_info
 
@@ -71,16 +72,16 @@ def extract_atom14(ccd_full_info):
             init_atom_charge[coord_idx] = v['charge'][i]
 
         atom14_dict[k] = {
-            'coord': init_atom14_array,
-            'charge': init_atom_charge
+            'coord': torch.tensor(init_atom14_array),
+            'charge': torch.tensor(init_atom_charge)
         }
     return atom14_dict
 
 
 # Extract atom14 information from CCD and save it
 ccd_atom14 = extract_atom14(ccd_full_info)
-for k, v in ccd_atom14.items():
-    print(k, v['coord'].shape, v['charge'].shape)
+# for k, v in ccd_atom14.items():
+#     print(k, v['coord'].shape, v['charge'].shape)
 
 with open('ccd_atom14.pkl', 'wb') as f:
     pickle.dump(ccd_atom14, f)
