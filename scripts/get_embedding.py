@@ -10,7 +10,7 @@ from esm2_extract import calculate_representation, save_representation
 
 # constants
 batch_size = 128
-metadata_path = f'/lustre/home/acct-clschf/clschf/jjzhu/ai2pse/data/dryrun_metadata.csv'
+metadata_path = '/lustre/home/acct-clschf/clschf/jjzhu/ai2pse/data/dryrun_metadata.csv'
 embedding_path = '/lustre/home/acct-clschf/clschf/jjzhu/ai2pse/data/embeddings'
 
 if not os.path.exists(embedding_path):

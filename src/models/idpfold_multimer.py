@@ -59,8 +59,9 @@ class IDPFoldMultimer(LightningModule):
         loss: torch.nn.Module,
         ema_config: Dict[str, Any],
         optimizer_config: Dict[str, Any],
-        lr_scheduler_config: Dict[str, Any],
         diffusion_sample: int,
+        inference: Dict[str, Any],
+        compile: bool = False,
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
@@ -89,11 +90,12 @@ class IDPFoldMultimer(LightningModule):
         torch.cuda.empty_cache()
 
         self.optimizer = get_optimizer(optimizer_config, self.net)
-        self.init_scheduler()
 
         self.ema_config = ema_config
-        self.lr_scheduler_config = lr_scheduler_config
+        self.lr_scheduler_config = optimizer_config
         self.N_sample = diffusion_sample
+
+        self.init_scheduler()
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()

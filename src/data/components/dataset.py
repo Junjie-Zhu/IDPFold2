@@ -68,10 +68,7 @@ def convert_atom_name_id(atom_name: List[int]):
     return atom_name.strip()
 
 
-def get_atom_features(data_object):
-
-    ccd_atom14 = data_object['ccd_atom14']
-
+def get_atom_features(data_object, ccd_atom14):
     atom_mask = data_object['atom_mask']
     atom_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
 
@@ -158,7 +155,7 @@ class ProteinFeatureTransform:
         self.recenter_and_scale = recenter_and_scale
         self.eps = eps
         
-    def __call__(self, chain_feats):
+    def __call__(self, chain_feats, ccd_atom14):
         chain_feats = self.patch_feats(chain_feats)
         
         if self.strip_missing_residues:
@@ -175,7 +172,7 @@ class ProteinFeatureTransform:
         chain_feats = self.map_to_tensors(chain_feats)
 
         # transform to all-atom features
-        chain_feats, label_dict = get_atom_features(chain_feats)
+        chain_feats, label_dict = get_atom_features(chain_feats, ccd_atom14)
 
         # Add extra features from AF2 
         # chain_feats = self.protein_data_transform(chain_feats)
@@ -356,8 +353,8 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
         self.transform = transform
         self.training = training  # not implemented yet
 
-        # get absolute path
-        cwd = os.getcwd()
+        # get absolute path of this file
+        cwd = os.path.dirname(os.path.abspath(__file__))
         with open(os.path.join(cwd, 'ccd_atom14.pkl'), 'rb') as f:
             self.ccd_atom14 = pickle.load(f)
     
@@ -401,13 +398,9 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
                     } # 33 is for ESM650M
                 )
 
-        data_object.update(
-            {'ccd_atom14': self.ccd_atom14}
-        )
-
         # Apply data transform
         if self.transform is not None:
-            data_object, label_object = self.transform(data_object)
+            data_object, label_object = self.transform(data_object, self.ccd_atom14)
             
             # fixed_mask = torch.zeros_like(data_object['ref_mask'], dtype=torch.float)
             # # randomly mask 20% of the atoms
