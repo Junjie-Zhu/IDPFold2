@@ -90,6 +90,7 @@ class IDPFoldMultimer(LightningModule):
         torch.cuda.empty_cache()
 
         self.optimizer = get_optimizer(optimizer_config, self.net)
+        self.train_noise_sampler = TrainingNoiseSampler()
 
         self.ema_config = ema_config
         self.lr_scheduler_config = optimizer_config
@@ -125,7 +126,7 @@ class IDPFoldMultimer(LightningModule):
         self.val_loss_best.reset()
 
     def model_step(
-        self, input_feature_dict, label_dict):
+        self, input_feature_dict):
         """Perform a single model step on a batch of data.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.
@@ -136,7 +137,14 @@ class IDPFoldMultimer(LightningModule):
             - A tensor of target labels.
         """
         N_sample = self.N_sample
-        s_inputs = input_feature_dict["seq_emb"]
+        s_inputs = input_feature_dict["seq_emb"].unsqueeze(1).expand(-1, N_sample, -1, -1)
+
+        label_dict = {
+            "coordinate": input_feature_dict["coordinate"],
+            "coordinate_mask": input_feature_dict["coordinate_mask"],
+        }
+        input_feature_dict.pop("coordinate")
+        input_feature_dict.pop("coordinate_mask")
 
         _, x_denoised, x_noise_level = autocasting_disable_decorator(
             True

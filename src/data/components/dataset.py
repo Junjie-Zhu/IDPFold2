@@ -1,6 +1,7 @@
 """Protein dataset class."""
 import os
 import pickle
+from cProfile import label
 from pathlib import Path
 from glob import glob
 from random import random
@@ -89,7 +90,7 @@ def get_atom_features(data_object, ccd_atom14):
         atom_positions[index_start:index_end] = residue_positions[atom_index]
         atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int64)
 
-        ref_positions[index_start:index_end] = ccd_atom14[data_object['aatype'][token]]['coord'][atom_index]
+        ref_positions[index_start:index_end] = ccd_atom14['coord'][int(data_object['aatype'][token])][atom_index]
         # atom_charge[index_start:index_end] = ccd_atom14[data_object['aatype'][token]]['charge'][atom_index]
 
         atom_type.extend([atom_types[i] for i in atom_index])
@@ -102,11 +103,11 @@ def get_atom_features(data_object, ccd_atom14):
 
     onehot_dict = {}
     for index, key in enumerate(range(32)):
-        onehot = [0] * 64
+        onehot = [0] * 32
         onehot[index] = 1
         onehot_dict[key] = onehot
 
-    onehot_encoded_data = [onehot_dict[item] for item in atom_elements]
+    onehot_encoded_data = [onehot_dict[int(item)] for item in atom_elements]
     atom_elements = torch.Tensor(onehot_encoded_data)
 
     output_batch = {
@@ -121,7 +122,7 @@ def get_atom_features(data_object, ccd_atom14):
         'ref_space_uid': atom_space_uid,
         'ref_atom_name_chars': atom_name_char,
         'ref_element': atom_elements,
-        'ref_mask': torch.ones_like(atom_elements, dtype=torch.float)
+        'ref_mask': torch.ones_like(atom_space_uid, dtype=torch.float)
     }
 
     label_batch = {
@@ -409,7 +410,8 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
             # data_object['fixed_mask'] = fixed_mask
 
         data_object['accession_code'] =  accession_code
-        return data_object, label_object  # dict of arrays
+        data_object.update(label_object)
+        return data_object  # dict of arrays
 
     
 
