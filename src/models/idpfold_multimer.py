@@ -142,9 +142,11 @@ class IDPFoldMultimer(LightningModule):
         label_dict = {
             "coordinate": input_feature_dict["coordinate"],
             "coordinate_mask": input_feature_dict["coordinate_mask"],
+            "lddt_mask": input_feature_dict["lddt_mask"],
         }
         input_feature_dict.pop("coordinate")
         input_feature_dict.pop("coordinate_mask")
+        input_feature_dict.pop("lddt_mask")
 
         _, x_denoised, x_noise_level = autocasting_disable_decorator(
             True
@@ -206,7 +208,7 @@ class IDPFoldMultimer(LightningModule):
         self.val_loss(loss) # update
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
-    def on_validation_epoch_end(self) -> None:
+    def on_validation_epoch_start(self) -> None:
         "Lightning hook that is called when a validation epoch starts."
         if hasattr(self, "ema_wrapper"):
             self.ema_wrapper.apply_shadow()

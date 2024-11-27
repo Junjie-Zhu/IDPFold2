@@ -130,6 +130,11 @@ def get_atom_features(data_object, ccd_atom14):
         'coordinate_mask': torch.ones_like(atom_positions[:, 0]).squeeze(),
     }
 
+    # calculate the distance matrix from coordinates
+    distance_matrix = label_batch['coordinate'][:, None, :] - label_batch['coordinate'][None, :, :]
+    lddt_mask = distance_matrix.norm(dim=-1) < 15.0
+    label_batch['lddt_mask'] = lddt_mask
+
     return output_batch, label_batch
 
 
