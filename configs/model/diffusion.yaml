@@ -4,7 +4,7 @@ net:
   _target_: src.models.components.diffusion_module.DiffusionModule
   use_fine_grained_checkpoint: True
   sigma_data: 16.
-  c_token: 768
+  c_token: 384
   c_atom: 128
   c_atompair: 16
   c_z: 128
@@ -24,14 +24,14 @@ net:
     n_blocks: 3
     n_heads: 4
   transformer:
-    n_blocks: 24
+    n_blocks: 3
     n_heads: 16
   atom_decoder:
     n_blocks: 3
     n_heads: 4
   blocks_per_ckpt: 1
 loss:
-  __target__: src.models.loss.AllLosses
+  _target_: src.models.loss.AllLosses
   diffusion_lddt_loss_dense: True
   diffusion_sparse_loss_enable: True
 ema_config:

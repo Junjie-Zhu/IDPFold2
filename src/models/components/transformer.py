@@ -704,6 +704,7 @@ class AtomAttentionEncoder(nn.Module):
         # [..., N_atom, C_atom]
         batch_shape = input_feature_dict["ref_pos"].shape[:-2]
         N_atom = input_feature_dict["ref_pos"].shape[-2]
+
         c_l = self.linear_no_bias_f(
             torch.cat(
                 [

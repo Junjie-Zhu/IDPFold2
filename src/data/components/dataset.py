@@ -1,7 +1,6 @@
 """Protein dataset class."""
 import os
 import pickle
-from cProfile import label
 from pathlib import Path
 from glob import glob
 from random import random
@@ -70,6 +69,7 @@ def convert_atom_name_id(atom_name: List[int]):
 
 
 def get_atom_features(data_object, ccd_atom14):
+
     atom_mask = data_object['atom_mask']
     atom_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
 
@@ -359,7 +359,7 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
         self.transform = transform
         self.training = training  # not implemented yet
 
-        # get absolute path of this file
+        # get absolute path
         cwd = os.path.dirname(os.path.abspath(__file__))
         with open(os.path.join(cwd, 'ccd_atom14.pkl'), 'rb') as f:
             self.ccd_atom14 = pickle.load(f)
@@ -415,6 +415,7 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
             # data_object['fixed_mask'] = fixed_mask
 
         data_object['accession_code'] =  accession_code
+
         data_object.update(label_object)
         return data_object  # dict of arrays
 

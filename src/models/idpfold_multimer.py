@@ -60,8 +60,8 @@ class IDPFoldMultimer(LightningModule):
         ema_config: Dict[str, Any],
         optimizer_config: Dict[str, Any],
         diffusion_sample: int,
-        inference: Dict[str, Any],
-        compile: bool = False,
+        inference: dict[str, Any],
+        compile: bool=False
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
@@ -168,7 +168,7 @@ class IDPFoldMultimer(LightningModule):
         return loss
 
     def training_step(
-        self, input_feature_dict, label_dict, batch_idx: int
+        self, input_feature_dict, batch_idx: int
     ) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
@@ -177,7 +177,7 @@ class IDPFoldMultimer(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
-        loss = self.model_step(input_feature_dict, label_dict)
+        loss = self.model_step(input_feature_dict)
 
         # update and log metrics
         self.train_loss(loss)
@@ -195,14 +195,14 @@ class IDPFoldMultimer(LightningModule):
         "Lightning hook that is called when a training epoch ends."
         pass
 
-    def validation_step(self, input_feature_dict, label_dict, batch_idx: int) -> None:
+    def validation_step(self, input_feature_dict, batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
             labels.
         :param batch_idx: The index of the current batch.
         """
-        loss = self.model_step(input_feature_dict, label_dict)
+        loss = self.model_step(input_feature_dict)
 
         # update and log metrics
         self.val_loss(loss) # update

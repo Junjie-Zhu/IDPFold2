@@ -7,7 +7,7 @@ defaults:
   - override /callbacks: default
   - override /data: protein
   - override /model: diffusion
-  - override /trainer: ddp
+  - override /trainer: ddp_sim
   
 
 # all parameters below will be merged with parameters from default configurations set above
@@ -21,7 +21,7 @@ callbacks:
 
 
 data:
-  batch_size: 16
+  batch_size: 2
 
 model:
   ema_config:
@@ -32,10 +32,10 @@ model:
     max_steps: 20000000
 
 trainer:
-  precision: bf16
+# precision: bf16-mixed
   min_epochs: 750
   max_epochs: 1000
-  devices: 4
+  # devices: 4
   # gradient_clip_val: 0.5
 
 
