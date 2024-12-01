@@ -8,7 +8,6 @@ from typing import Optional, Sequence, List, Union
 from functools import lru_cache
 import tree
 
-from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import torch
@@ -68,12 +67,19 @@ def convert_atom_name_id(atom_name: List[int]):
     return atom_name.strip()
 
 
+def calc_centre_of_mass(coords, atom_mass):
+    mass_coords = coords * atom_mass[:, None]
+    return torch.sum(mass_coords, dim=0) / torch.sum(atom_mass)
+
 def get_atom_features(data_object, ccd_atom14):
 
     atom_mask = data_object['atom_mask']
     atom_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
+    atom_com = torch.zeros(data_object['residue_index'].shape[0], 3, dtype=torch.float32)
 
     ref_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
+    ref_com = torch.zeros(data_object['residue_index'].shape[0], 3, dtype=torch.float32)
+
     token2atom_map = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
     atom_elements = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
     atom_charge = torch.zeros(int(atom_mask.sum()), dtype=torch.float32)
@@ -89,8 +95,10 @@ def get_atom_features(data_object, ccd_atom14):
         atom_index = torch.where(residues)[0]
         atom_positions[index_start:index_end] = residue_positions[atom_index]
         atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int64)
-
         ref_positions[index_start:index_end] = ccd_atom14['coord'][int(data_object['aatype'][token])][atom_index]
+
+        atom_com[token] = calc_centre_of_mass(atom_positions[index_start:index_end], atom_elements[index_start:index_end] * 2)
+        ref_com[token] = calc_centre_of_mass(ref_positions[index_start:index_end], atom_elements[index_start:index_end] * 2)
         # atom_charge[index_start:index_end] = ccd_atom14[data_object['aatype'][token]]['charge'][atom_index]
 
         atom_type.extend([atom_types[i] for i in atom_index])
@@ -117,8 +125,10 @@ def get_atom_features(data_object, ccd_atom14):
         'seq_mask': torch.ones_like(data_object['residue_index'], dtype=torch.float32),
         'aatype': data_object['aatype'],
         'seq_emb': data_object['seq_emb'],
+        'residue_com': atom_com,
+        'ref_com': ref_com,o
 
-        'ref_pos': atom_positions,
+        'ref_pos': ref_positions,
         'ref_space_uid': atom_space_uid,
         'ref_atom_name_chars': atom_name_char,
         'ref_element': atom_elements,
