@@ -126,7 +126,7 @@ def get_atom_features(data_object, ccd_atom14):
         'aatype': data_object['aatype'],
         'seq_emb': data_object['seq_emb'],
         'residue_com': atom_com,
-        'ref_com': ref_com,o
+        'ref_com': ref_com,
 
         'ref_pos': ref_positions,
         'ref_space_uid': atom_space_uid,
