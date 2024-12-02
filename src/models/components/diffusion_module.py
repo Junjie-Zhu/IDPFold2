@@ -176,7 +176,7 @@ class EmbeddingModule(nn.Module):
                  num_bins: int = 22,
                  min_bin: float = 1e-5,
                  max_bin: float = 20.0,
-                 self_conditioning: bool = False,
+                 self_conditioning: bool = True,
                  ):
         super(EmbeddingModule, self).__init__()
         pos_embed_size = init_embed_size
@@ -523,7 +523,6 @@ class DiffusionModule(nn.Module):
         #     self_conditioning_ca.append(torch.cat(
         #         [ca_pos, torch.zeros((padding_length, 3)).to(ca_pos.device)], dim=0)
         #     )
-        self_conditioning_ca = []
 
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():
@@ -539,7 +538,7 @@ class DiffusionModule(nn.Module):
                 t_hat_noise_level,
                 input_feature_dict["seq_mask"].unsqueeze(1).expand(-1, N_sample, -1),
                 s_inputs,
-                self_conditioning_ca,
+                input_feature_dict["ref_com"],
             )
         else:
             s_single, z_pair = self.diffusion_conditioning(
@@ -547,7 +546,7 @@ class DiffusionModule(nn.Module):
                 t_hat_noise_level,
                 input_feature_dict["seq_mask"].unsqueeze(1).expand(-1, N_sample, -1),
                 s_inputs,
-                self_conditioning_ca,
+                input_feature_dict["ref_com"],
             )  # [..., N_sample, N_token, c_s], [..., N_token, N_token, c_z]
 
         # Fine-grained checkpoint for finetuning stage 2 (token num: 768) for avoiding OOM

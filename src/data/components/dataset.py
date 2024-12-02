@@ -13,6 +13,7 @@ import pandas as pd
 import torch
 
 from src.common import residue_constants, data_transforms, rigid_utils, protein
+from src.utils.model_utils import uniform_random_rotation, expand_at_dim, rot_vec_mul
 
 
 CA_IDX = residue_constants.atom_order['CA']
@@ -75,10 +76,12 @@ def get_atom_features(data_object, ccd_atom14):
 
     atom_mask = data_object['atom_mask']
     atom_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
-    atom_com = torch.zeros(data_object['residue_index'].shape[0], 3, dtype=torch.float32)
+    atom_com = atom_positions.clone()
+    atom_com_ = torch.zeros(data_object['residue_index'].shape[0], 3, dtype=torch.float32)
 
     ref_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
-    ref_com = torch.zeros(data_object['residue_index'].shape[0], 3, dtype=torch.float32)
+    ref_com = ref_positions.clone()
+    ref_com_ = torch.zeros(data_object['residue_index'].shape[0], 3, dtype=torch.float32)
 
     token2atom_map = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
     atom_elements = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
@@ -97,8 +100,13 @@ def get_atom_features(data_object, ccd_atom14):
         atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int64)
         ref_positions[index_start:index_end] = ccd_atom14['coord'][int(data_object['aatype'][token])][atom_index]
 
-        atom_com[token] = calc_centre_of_mass(atom_positions[index_start:index_end], atom_elements[index_start:index_end] * 2)
-        ref_com[token] = calc_centre_of_mass(ref_positions[index_start:index_end], atom_elements[index_start:index_end] * 2)
+        crt_com = calc_centre_of_mass(atom_positions[index_start:index_end], atom_elements[index_start:index_end] * 2)
+        crt_ref_com = ccd_atom14['com'][int(data_object['aatype'][token])]
+
+        atom_com[index_start:index_end] = crt_com * torch.ones_like(atom_positions[index_start:index_end])
+        ref_com[index_start:index_end] = crt_ref_com * torch.ones_like(atom_positions[index_start:index_end])
+        ref_com_[token] = crt_ref_com
+        atom_com_[token] = crt_com
         # atom_charge[index_start:index_end] = ccd_atom14[data_object['aatype'][token]]['charge'][atom_index]
 
         atom_type.extend([atom_types[i] for i in atom_index])
@@ -118,15 +126,26 @@ def get_atom_features(data_object, ccd_atom14):
     onehot_encoded_data = [onehot_dict[int(item)] for item in atom_elements]
     atom_elements = torch.Tensor(onehot_encoded_data)
 
+    # Add random rotation
+    rot_matrix = uniform_random_rotation(atom_com.shape[0])
+    rot_matrix_expand = [rot_matrix[i] for i in token2atom_map]
+    rot_matrix = torch.stack(rot_matrix_expand, dim=0)
+
+    ref_positions = rot_vec_mul(
+        r=rot_matrix,
+        t=ref_positions - ref_com,
+    )
+
     output_batch = {
         'atom_to_token_idx': token2atom_map,
 
         'residue_index': data_object['residue_index'],
         'seq_mask': torch.ones_like(data_object['residue_index'], dtype=torch.float32),
         'aatype': data_object['aatype'],
+
         'seq_emb': data_object['seq_emb'],
-        'residue_com': atom_com,
-        'ref_com': ref_com,
+        'residue_com_diff': atom_com - ref_com,
+        'ref_com': atom_com_ - ref_com_,
 
         'ref_pos': ref_positions,
         'ref_space_uid': atom_space_uid,
@@ -371,7 +390,7 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
 
         # get absolute path
         cwd = os.path.dirname(os.path.abspath(__file__))
-        with open(os.path.join(cwd, 'ccd_atom14.pkl'), 'rb') as f:
+        with open(os.path.join(cwd, 'ccd_atom37.pkl'), 'rb') as f:
             self.ccd_atom14 = pickle.load(f)
     
     @property    

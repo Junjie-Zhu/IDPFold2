@@ -148,6 +148,10 @@ class IDPFoldMultimer(LightningModule):
         input_feature_dict.pop("coordinate_mask")
         input_feature_dict.pop("lddt_mask")
 
+        # Add centre of mass condition
+        if "residue_com_diff" in input_feature_dict.keys() and random() < 0.3:
+            input_feature_dict["ref_pos"] += input_feature_dict["residue_com_diff"]
+
         _, x_denoised, x_noise_level = autocasting_disable_decorator(
             True
         )(sample_diffusion_training)(
