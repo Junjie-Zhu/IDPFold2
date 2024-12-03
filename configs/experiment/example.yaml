@@ -7,7 +7,7 @@ defaults:
   - override /callbacks: default
   - override /data: protein
   - override /model: diffusion
-  - override /trainer: ddp
+  - override /trainer: ddp_sim
   
 
 # all parameters below will be merged with parameters from default configurations set above
@@ -21,22 +21,36 @@ callbacks:
 
 
 data:
-  batch_size: 4
+  batch_size: 2
+  dataset:
+    transform:
+      truncate_length: 128
 
 model:
-  optimizer:
-    lr: 1e-4
+  ema_config:
+    ema_decay: 0.999
+  optimizer_config:
+    lr: 0.001
+    warmup_steps: 5000
+    max_steps: 20000000
+  diffusion_sample: 1
+  net:
+    transformer:
+      n_blocks: 2
+      n_heads: 4
 
 trainer:
-  min_epochs: 500
+  # precision: bf16-mixed
+  strategy: ddp_find_unused_parameters_true
+  min_epochs: 750
   max_epochs: 1000
-  devices: 2
+  # devices: 8
   # gradient_clip_val: 0.5
 
 
 tags: ["dev"]
 
-task_name: "example_experiment"
+task_name: "dryrun"
 
 seed: 42
 

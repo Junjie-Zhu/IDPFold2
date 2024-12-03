@@ -98,10 +98,10 @@ def get_atom_features(data_object, ccd_atom14):
         atom_index = torch.where(residues)[0]
         atom_positions[index_start:index_end] = residue_positions[atom_index]
         atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int64)
-        ref_positions[index_start:index_end] = ccd_atom14['coord'][int(data_object['aatype'][token])][atom_index]
+        ref_positions[index_start:index_end] = ccd_atom14[int(data_object['aatype'][token])]['coord'][atom_index]
 
         crt_com = calc_centre_of_mass(atom_positions[index_start:index_end], atom_elements[index_start:index_end] * 2)
-        crt_ref_com = ccd_atom14['com'][int(data_object['aatype'][token])]
+        crt_ref_com = ccd_atom14[int(data_object['aatype'][token])]['com']
 
         atom_com[index_start:index_end] = crt_com * torch.ones_like(atom_positions[index_start:index_end])
         ref_com[index_start:index_end] = crt_ref_com * torch.ones_like(atom_positions[index_start:index_end])

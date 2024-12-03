@@ -190,7 +190,7 @@ class IDPFoldMultimer(LightningModule):
         # return loss or backpropagation will fail
         return loss
 
-    def on_train_batch_end(self, outputs, batch, batch_idx, dataloader_idx) -> None:
+    def on_train_batch_end(self, outputs, batch, batch_idx) -> None:
         """Lightning hook that is called after every training batch."""
         if hasattr(self, "ema_wrapper"):
             self.ema_wrapper.update()
