@@ -124,6 +124,7 @@ def process_pdb(
     metadata = {
         "pdb_name": [],
         "processed_path": [],
+        "modeled_seq_len": [],
     }
     pdb_name = os.path.basename(pdb_path).replace('.pdb', '')
     structure = strucio.load_structure(pdb_path)
@@ -145,6 +146,7 @@ def process_pdb(
                     write_to_pkl(chain_dict, output_path)
 
                     metadata["processed_path"].append(output_path)
+                    metadata["modeled_seq_len"].append(len(chain_dict["aatype"]))
 
             else:
                 metadata["pdb_name"].append('.'.join([pdb_name, str(model_idx), 'all']))
@@ -153,6 +155,7 @@ def process_pdb(
                 write_to_pkl(concat_chain_features(model_dict), output_path)
 
                 metadata["processed_path"].append(output_path)
+                metadata["modeled_seq_len"].append(sum([len(chain_dict["aatype"]) for chain_dict in model_dict.values()]))
 
     elif struc_depth == 1:
         for chain_id, chain_dict in instantiate_protein(structure).items():
@@ -162,6 +165,7 @@ def process_pdb(
             write_to_pkl(chain_dict, output_path)
 
             metadata["processed_path"].append(output_path)
+            metadata["modeled_seq_len"].append(len(chain_dict["aatype"]))
 
     else:
         raise ValueError("Invalid structure stack depth.")
@@ -185,18 +189,21 @@ def main(args):
     all_metadata = {
         "pdb_name": [],
         "processed_path": [],
+        "modeled_seq_len": [],
     }
     if args.num_processes == 1:
         for pdb_path in pdb_paths:
             crt_metadata = _process_fn(pdb_path)
             all_metadata["pdb_name"].extend(crt_metadata["pdb_name"])
             all_metadata["processed_path"].extend(crt_metadata["processed_path"])
+            all_metadata["modeled_seq_len"].extend(crt_metadata["modeled_seq_len"])
     else:
         with mp.Pool() as pool:
             _all_metadata = pool.map(_process_fn, pdb_paths)
         for list_data in _all_metadata:
             all_metadata["pdb_name"].extend(list_data["pdb_name"])
             all_metadata["processed_path"].extend(list_data["processed_path"])
+            all_metadata["modeled_seq_len"].extend(list_data["modeled_seq_len"])
 
     # concat all metadata
     metadata_df = pd.DataFrame(all_metadata)
