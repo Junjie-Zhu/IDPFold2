@@ -21,11 +21,11 @@ import torch.nn as nn
 
 from src.models.components.embedders import FourierEmbedding, RelativePositionEncoding
 from src.models.components.primitives import LinearNoBias, Transition, LayerNorm
-from src.models.components.transformer import (
-    AtomAttentionDecoder,
-    AtomAttentionEncoder,
-    DiffusionTransformer,
-)
+# from src.models.components.transformer import (
+#     AtomAttentionDecoder,
+#     AtomAttentionEncoder,
+#     DiffusionTransformer,
+# )
 from src.utils.model_utils import expand_at_dim, get_checkpoint_fn
 from src.common.geo_utils import calc_distogram
 
@@ -281,6 +281,7 @@ class EmbeddingModule(nn.Module):
 
         # self-conditioning distogram of C-alpha atoms
         if self.self_conditioning:
+            self_conditioning_ca = self_conditioning_ca.unsqueeze(1).expand([B, N_sample, L, 3])
             ca_dist = self.distogram_embed(self_conditioning_ca)
             pair_feats.append(ca_dist.reshape([B, N_sample, L ** 2, -1]))
 
@@ -352,9 +353,10 @@ class DiffusionModule(nn.Module):
         c_s: int = 384,
         c_z: int = 128,
         c_s_inputs: int = 1280,
-        atom_encoder: dict[str, int] = {"n_blocks": 3, "n_heads": 4},
-        transformer: dict[str, int] = {"n_blocks": 24, "n_heads": 16},
-        atom_decoder: dict[str, int] = {"n_blocks": 3, "n_heads": 4},
+        embedding_module: nn.Module=None,
+        atom_encoder: nn.Module=None,
+        transformer: nn.Module=None,
+        atom_decoder: nn.Module=None,
         blocks_per_ckpt: Optional[int] = None,
         use_fine_grained_checkpoint: bool = False,
         initialization: Optional[dict[str, Union[str, float, bool]]] = None,
@@ -395,38 +397,16 @@ class DiffusionModule(nn.Module):
         # self.diffusion_conditioning = DiffusionConditioning(
         #     sigma_data=self.sigma_data, c_z=c_z, c_s=c_s, c_s_inputs=c_s_inputs
         # )
-        self.diffusion_conditioning = EmbeddingModule(
-            sigma_data=self.sigma_data, node_embed_size=c_s, edge_embed_size=c_z, embedding_size=c_s_inputs
-        )
+        self.diffusion_conditioning = embedding_module
+        self.atom_attention_encoder = atom_encoder
 
-        self.atom_attention_encoder = AtomAttentionEncoder(
-            **atom_encoder,
-            c_atom=c_atom,
-            c_atompair=c_atompair,
-            c_token=c_token,
-            has_coords=True,
-            c_s=c_s,
-            c_z=c_z,
-            blocks_per_ckpt=blocks_per_ckpt,
-        )
         # Alg20: line4
         self.layernorm_s = LayerNorm(c_s)
         self.linear_no_bias_s = LinearNoBias(in_features=c_s, out_features=c_token)
-        self.diffusion_transformer = DiffusionTransformer(
-            **transformer,
-            c_a=c_token,
-            c_s=c_s,
-            c_z=c_z,
-            blocks_per_ckpt=blocks_per_ckpt,
-        )
+        self.diffusion_transformer = transformer
         self.layernorm_a = LayerNorm(c_token)
-        self.atom_attention_decoder = AtomAttentionDecoder(
-            **atom_decoder,
-            c_token=c_token,
-            c_atom=c_atom,
-            c_atompair=c_atompair,
-            blocks_per_ckpt=blocks_per_ckpt,
-        )
+        self.atom_attention_decoder = atom_decoder
+
         self.init_parameters(initialization)
 
     def init_parameters(self, initialization: dict):

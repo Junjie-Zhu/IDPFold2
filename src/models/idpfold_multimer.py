@@ -79,16 +79,6 @@ class IDPFoldMultimer(LightningModule):
         self.net = net
         self.loss = loss
 
-        if ema_config.get("ema_decay", -1) > 0:
-            assert ema_config.ema_decay < 1
-            self.ema_wrapper = EMAWrapper(
-                self.net,
-                ema_config.ema_decay,
-                ema_config.ema_mutable_param_keywords,
-            )
-        self.ema_wrapper.register()
-        torch.cuda.empty_cache()
-
         self.optimizer = get_optimizer(optimizer_config, self.net)
         self.train_noise_sampler = TrainingNoiseSampler()
 
@@ -122,6 +112,15 @@ class IDPFoldMultimer(LightningModule):
         """Lightning hook that is called when training begins."""
         # by default lightning executes validation step sanity checks before training starts,
         # so it's worth to make sure validation metrics don't store results from these checks
+        if self.ema_config.get("ema_decay", -1) > 0:
+            assert self.ema_config.ema_decay < 1
+            self.ema_wrapper = EMAWrapper(
+                self.net,
+                self.ema_config.ema_decay,
+                self.ema_config.ema_mutable_param_keywords,
+            )
+            self.ema_wrapper.register()
+
         self.val_loss.reset()
         self.val_loss_best.reset()
 
@@ -152,9 +151,7 @@ class IDPFoldMultimer(LightningModule):
         if "residue_com_diff" in input_feature_dict.keys() and random() < 0.3:
             input_feature_dict["ref_pos"] += input_feature_dict["residue_com_diff"]
 
-        _, x_denoised, x_noise_level = autocasting_disable_decorator(
-            True
-        )(sample_diffusion_training)(
+        _, x_denoised, x_noise_level = sample_diffusion_training(
             noise_sampler=self.train_noise_sampler,
             denoise_net=self.net,
             label_dict=label_dict,

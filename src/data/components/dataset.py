@@ -435,6 +435,7 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
 
         # Apply data transform
         if self.transform is not None:
+            data_object.pop('chain_ids')
             data_object, label_object = self.transform(data_object, self.ccd_atom14)
             
             # fixed_mask = torch.zeros_like(data_object['ref_mask'], dtype=torch.float)

@@ -20,15 +20,43 @@ net:
     zero_init_residual_condition_transition: False
     zero_init_dit_output: True
     zero_init_atom_decoder_linear: False
+  embedding_module:
+    _target_: src.models.components.diffusion_module.EmbeddingModule
+    init_embed_size: 256  # Fourier embedding size
+    node_embed_size: 384  # c_s
+    edge_embed_size: 128  # c_z
+    embedding_size: 1280
+    sigma_data: 16.0
+    num_bins: 22
+    min_bin: 1e-5
+    max_bin: 20.0
+    self_conditioning: True
   atom_encoder:
+    _target_: src.models.components.transformer.AtomAttentionEncoder
     n_blocks: 3
     n_heads: 4
+    has_coords: True
+    c_token: 384
+    c_atom: 128
+    c_atompair: 16
+    c_s: 384
+    c_z: 128
+    n_queries: 32
+    n_keys: 128
   transformer:
+    _target_: src.models.components.transformer.DiffusionTransformer
     n_blocks: 12
     n_heads: 8
+    c_a: 384
+    c_s: 384
+    c_z: 128
   atom_decoder:
+    _target_: src.models.components.transformer.AtomAttentionDecoder
     n_blocks: 3
     n_heads: 4
+    c_token: 384
+    c_atom: 128
+    c_atompair: 16
   # blocks_per_ckpt: 1
 loss:
   _target_: src.models.loss.AllLosses
