@@ -318,9 +318,9 @@ class MetadataFilter:
     def __call__(self, df):
         _pre_filter_len = len(df)
         if self.min_len is not None:
-            df = df[df['raw_seq_len'] >= self.min_len]
+            df = df[df['modeled_seq_len'] >= self.min_len]
         if self.max_len is not None:
-            df = df[df['raw_seq_len'] <= self.max_len]
+            df = df[df['modeled_seq_len'] <= self.max_len]
         if self.min_chains is not None:
             df = df[df['num_chains'] >= self.min_chains]
         if self.max_chains is not None:
