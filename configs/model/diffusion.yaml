@@ -22,9 +22,9 @@ net:
     zero_init_atom_decoder_linear: False
   embedding_module:
     _target_: src.models.components.diffusion_module.EmbeddingModule
-    init_embed_size: 256  # Fourier embedding size
-    node_embed_size: 384  # c_s
-    edge_embed_size: 128  # c_z
+    init_embed_size: 256
+    node_embed_size: 384
+    edge_embed_size: 128
     embedding_size: 1280
     sigma_data: 16.0
     num_bins: 22
@@ -73,19 +73,19 @@ optimizer_config:
   max_steps: 100000
   min_lr_ratio: 0.1
   decay_every_n_steps: 50000
-  grad_clip_norm: 10
+  grad_clip_norm: 5
   # Optim - Adam
   adam:
     beta1: 0.9
-    beta2: 0.95
-    weight_decay: 1e-8
+    beta2: 0.98
+    weight_decay: 1e-7
     lr: 0.0018
     use_adamw: False
   # Optim - LRScheduler
   af3_lr_scheduler:
     warmup_steps: 10
-    decay_every_n_steps: 50000
-    decay_factor: 0.95
+    decay_every_n_steps: 20000
+    decay_factor: 0.90
     lr: 0.0018
 diffusion_sample: 4
 
@@ -98,3 +98,4 @@ inference:
 
 # compile model for faster training with pytorch 2.0
 compile: false
+

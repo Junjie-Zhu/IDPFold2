@@ -150,6 +150,8 @@ class IDPFoldMultimer(LightningModule):
         # Add centre of mass condition
         if "residue_com_diff" in input_feature_dict.keys() and random() < 0.3:
             input_feature_dict["ref_pos"] += input_feature_dict["residue_com_diff"]
+        else:
+            input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_com"])
 
         _, x_denoised, x_noise_level = sample_diffusion_training(
             noise_sampler=self.train_noise_sampler,
@@ -293,13 +295,14 @@ class IDPFoldMultimer(LightningModule):
         # Include EMA parameters in the state_dict
         state = super().state_dict()
         if hasattr(self, "ema_wrapper"):
-            state['ema_params'] = {k: v.clone() for k, v in self.ema_wrapper.ema_params.items()}
+            state["ema_params"] = self.ema_wrapper.shadow
         return state
 
     def load_state_dict(self, state_dict):
         # Load EMA parameters from the state_dict
         if 'ema_params' in state_dict:
-            self.ema.ema_params = state_dict['ema_params']
+            if hasattr(self, "ema_wrapper"):
+                self.ema_wrapper.shadow = state_dict['ema_params']
             del state_dict['ema_params']  # Remove EMA from the standard model state_dict
         super().load_state_dict(state_dict)
 
