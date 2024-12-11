@@ -125,8 +125,6 @@ def sample_diffusion(
     denoise_net: Callable,
     input_feature_dict: dict[str, Any],
     s_inputs: torch.Tensor,
-    s_trunk: torch.Tensor,
-    z_trunk: torch.Tensor,
     noise_schedule: torch.Tensor,
     N_sample: int = 1,
     gamma0: float = 0.8,
@@ -210,8 +208,6 @@ def sample_diffusion(
                 t_hat_noise_level=t_hat,
                 input_feature_dict=input_feature_dict,
                 s_inputs=s_inputs,
-                s_trunk=s_trunk,
-                z_trunk=z_trunk,
                 chunk_size=attn_chunk_size,
                 inplace_safe=inplace_safe,
             )

@@ -81,6 +81,7 @@ class IDPFoldMultimer(LightningModule):
 
         self.optimizer = get_optimizer(optimizer_config, self.net)
         self.train_noise_sampler = TrainingNoiseSampler()
+        self.inference_noise_scheduler = InferenceNoiseScheduler()
 
         self.ema_config = ema_config
         self.lr_scheduler_config = optimizer_config
@@ -244,7 +245,7 @@ class IDPFoldMultimer(LightningModule):
         pass
 
     def predict_step(
-        self, batch
+        self, input_feature_dict
     ) -> str:
         """Perform a prediction step on a batch of data from the dataloader.
 
@@ -262,6 +263,12 @@ class IDPFoldMultimer(LightningModule):
         output_dir = self.hparams.inference.output_dir
         batch_size = self.hparams.inference.replica_per_batch
 
+        s_inputs = input_feature_dict["seq_emb"]
+
+        noise_schedule = self.inference_noise_scheduler(
+            N_step=200, device=s_inputs.device, dtype=s_inputs.dtype
+        )
+
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
 
@@ -270,30 +277,32 @@ class IDPFoldMultimer(LightningModule):
             'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
         ]
 
-        rep_index = 1
-        for replica in range(int(n_replica / batch_size)):
-            for k, v in batch.items():
-                # check if v is tensor
-                if torch.is_tensor(v):
-                    batch[k] = v.expand(batch_size, *v.shape[1:])
-                else:
-                    continue
+        pred_coordinates = sample_diffusion(
+            denoise_net=self.net,
+            input_feature_dict=input_feature_dict,
+            s_inputs=s_inputs,
+            N_sample=n_replica,
+            noise_schedule=noise_schedule,
+            inplace_safe=False,
+        )
 
-            output_dict = self.net.sample_diffusion(batch)
+        # atom_name and residue_name
+        output_atom_name = [convert_atom_name_id(i) for i in input_feature_dict['ref_atom_name_chars'][0]]
+        output_residue_name = [restypes[input_feature_dict['aatype'][0][i]]
+                               for i in input_feature_dict['ref_token2atom_idx'][0]]
 
-            output_coords = output_dict['final_atom_positions'].cpu()
+        # save output
+        write_pdb_raw(
+            atom_names=output_atom_name,
+            aatypes=output_residue_name,
+            atom_res_map=input_feature_dict['ref_token2atom_idx'][0],
+            atom_positions=pred_coordinates,
+            output_path=output_dir,
+            accession_code=input_feature_dict['accession_code'][0],
+            mode='single'
+        )
 
-            # atom_name and residue_name
-            output_atom_name = [convert_atom_name_id(i) for i in batch['ref_atom_name_chars'][0]]
-            output_residue_name = [restypes[batch['aatype'][0][i]] for i in batch['ref_token2atom_idx'][0]]
-
-            # save output
-            write_pdb_raw(output_atom_name, output_residue_name, batch['ref_token2atom_idx'][0],
-                          output_coords, os.path.join(output_dir, str(replica)), batch['accession_code'][0])
-
-            rep_index += 1
-
-        return output_dict
+        return pred_coordinates
 
     def state_dict(self):
         # Include EMA parameters in the state_dict
