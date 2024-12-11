@@ -70,7 +70,7 @@ class IDPFoldMultimer(LightningModule):
         :param scheduler: The learning rate scheduler to use for training.
         """
         super().__init__()
-
+        self.automatic_optimization = False
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
@@ -180,14 +180,18 @@ class IDPFoldMultimer(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
+        self.optimizer.zero_grad()
         loss = self.model_step(input_feature_dict)
+        self.manual_backward(loss)
+        self.optimizer.step()
+        self.lr_scheduler.step()
 
         # update and log metrics
         self.train_loss(loss)
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("train/loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
-        # return loss or backpropagation will fail
-        return loss
+        # # return loss or backpropagation will fail
+        # return loss
 
     def on_train_batch_end(self, outputs, batch, batch_idx) -> None:
         """Lightning hook that is called after every training batch."""
