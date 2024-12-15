@@ -492,8 +492,6 @@ class DiffusionModule(nn.Module):
         N_sample = r_noisy.size(-3)
         assert t_hat_noise_level.size(-1) == N_sample
 
-        input_feature_dict['atom_to_token_idx'] = input_feature_dict['atom_to_token_idx'][0]
-
         # N_token = s_inputs.size(-2)
         # self_conditioning_ca = []
         # for b in range(N_sample):

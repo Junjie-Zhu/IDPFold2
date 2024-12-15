@@ -59,13 +59,24 @@ def convert_atom_id_name(atom_names: list[str]):
     return onehot_tensor
 
 
-def convert_atom_name_id(atom_name: List[int]):
+def convert_atom_name_id(onehot_tensor: torch.Tensor):
     """
         Converts integer of atom_name to unique atom_id names.
-        Each character is decoded as chr(c + 32)
+        Each character is encoded as chr(c + 32)
     """
-    atom_name = ''.join([chr(c + 32) for c in atom_name])
-    return atom_name.strip()
+    # Create reverse mapping from one-hot index to characters
+    index_to_char = {index: chr(key + 32) for key, index in enumerate(range(64))}
+    
+    # Extract atom names from the tensor
+    atom_names = []
+    for atom_encode in onehot_tensor:
+        atom_name = ''
+        for char_onehot in atom_encode:
+            index = char_onehot.argmax().item()  # Find the index of the maximum value
+            atom_name += index_to_char[index]
+        atom_names.append(atom_name.strip())  # Remove padding spaces
+    
+    return atom_names
 
 
 def calc_centre_of_mass(coords, atom_mass):
@@ -411,7 +422,7 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
         """return single pyg.Data() instance
         """
         data_path = self.data[idx]
-        accession_code = os.path.splitext(os.path.basename(data_path))[0]
+        accession_code = os.path.splitext(os.path.basename(data_path))[0].split('.')[0]
         
         if self.suffix == '.pkl':
             # Load pickled protein

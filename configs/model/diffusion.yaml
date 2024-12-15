@@ -1,18 +1,5 @@
 _target_: src.models.idpfold_multimer.IDPFoldMultimer
 
-optimizer:
-  _target_: torch.optim.Adam
-  _partial_: true
-  lr: 1e-4
-  weight_decay: 0.0
-
-scheduler:
-  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
-  _partial_: true
-  mode: min
-  factor: 0.1
-  patience: 5
-
 net:
   _target_: src.models.components.diffusion_module.DiffusionModule
   use_fine_grained_checkpoint: False
@@ -79,6 +66,27 @@ ema_config:
   ema_decay: -1.0
   eval_ema_only": False  # whether wandb only tracking ema checkpoint metrics
   ema_mutable_param_keywords: [ "" ]
+optimizer_config:
+  lr: 0.0018
+  lr_scheduler: "af3"
+  warmup_steps: 5
+  max_steps: 100000
+  min_lr_ratio: 0.1
+  decay_every_n_steps: 50000
+  grad_clip_norm: 5
+  # Optim - Adam
+  adam:
+    beta1: 0.9
+    beta2: 0.98
+    weight_decay: 1e-7
+    lr: 0.0018
+    use_adamw: False
+  # Optim - LRScheduler
+  af3_lr_scheduler:
+    warmup_steps: 10
+    decay_every_n_steps: 20000
+    decay_factor: 0.90
+    lr: 0.0018
 diffusion_sample: 4
 
 # default hparam for sampling s2011

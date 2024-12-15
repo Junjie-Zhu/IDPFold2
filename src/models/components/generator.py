@@ -207,7 +207,7 @@ def sample_diffusion(
                 x_noisy=x_noisy,
                 t_hat_noise_level=t_hat,
                 input_feature_dict=input_feature_dict,
-                s_inputs=s_inputs,
+                s_inputs=s_inputs.unsqueeze(1).expand(-1, N_sample, -1, -1),
                 chunk_size=attn_chunk_size,
                 inplace_safe=inplace_safe,
             )

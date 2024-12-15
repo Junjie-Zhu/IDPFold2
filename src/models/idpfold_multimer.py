@@ -57,9 +57,8 @@ class IDPFoldMultimer(LightningModule):
         self,
         net: torch.nn.Module,
         loss: torch.nn.Module,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler,
         ema_config: Dict[str, Any],
+        optimizer_config: Dict[str, Any],
         diffusion_sample: int,
         inference: dict[str, Any],
         compile: bool=False
@@ -71,6 +70,7 @@ class IDPFoldMultimer(LightningModule):
         :param scheduler: The learning rate scheduler to use for training.
         """
         super().__init__()
+        self.automatic_optimization = False
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
@@ -79,11 +79,15 @@ class IDPFoldMultimer(LightningModule):
         self.net = net
         self.loss = loss
 
+        self.optimizer = get_optimizer(optimizer_config, self.net)
         self.train_noise_sampler = TrainingNoiseSampler()
         self.inference_noise_scheduler = InferenceNoiseScheduler()
 
         self.ema_config = ema_config
+        self.lr_scheduler_config = optimizer_config
         self.N_sample = diffusion_sample
+
+        self.init_scheduler()
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
@@ -92,6 +96,9 @@ class IDPFoldMultimer(LightningModule):
 
         # for tracking best so far validation accuracy
         self.val_loss_best = MinMetric()
+
+    def init_scheduler(self, **kwargs):
+        self.lr_scheduler = get_lr_scheduler(self.lr_scheduler_config, self.optimizer, **kwargs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`. 
@@ -131,7 +138,8 @@ class IDPFoldMultimer(LightningModule):
         """
         N_sample = self.N_sample
         s_inputs = input_feature_dict["seq_emb"].unsqueeze(1).expand(-1, N_sample, -1, -1)
-
+        input_feature_dict['atom_to_token_idx'] = input_feature_dict['atom_to_token_idx'][0]
+        
         label_dict = {
             "coordinate": input_feature_dict["coordinate"],
             "coordinate_mask": input_feature_dict["coordinate_mask"],
@@ -174,14 +182,18 @@ class IDPFoldMultimer(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
+        self.optimizer.zero_grad()
         loss = self.model_step(input_feature_dict)
+        self.manual_backward(loss)
+        self.optimizer.step()
+        self.lr_scheduler.step()
 
         # update and log metrics
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
-        # return loss or backpropagation will fail
-        return loss
+        # # return loss or backpropagation will fail
+        # return loss
 
     def on_train_batch_end(self, outputs, batch, batch_idx) -> None:
         """Lightning hook that is called after every training batch."""
@@ -218,7 +230,6 @@ class IDPFoldMultimer(LightningModule):
         # otherwise metric would be reset by lightning after each epoch
         if hasattr(self, "ema_wrapper"):
             self.ema_wrapper.restore()
-
         self.log("val/loss_best", self.val_loss_best.compute(), sync_dist=True, prog_bar=True)
 
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
@@ -254,6 +265,7 @@ class IDPFoldMultimer(LightningModule):
         batch_size = self.hparams.inference.replica_per_batch
 
         s_inputs = input_feature_dict["seq_emb"]
+        input_feature_dict['atom_to_token_idx'] = input_feature_dict['atom_to_token_idx'][0]
 
         noise_schedule = self.inference_noise_scheduler(
             N_step=200, device=s_inputs.device, dtype=s_inputs.dtype
@@ -261,6 +273,8 @@ class IDPFoldMultimer(LightningModule):
 
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
+
+        input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_com"])
 
         restypes = [
             'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
@@ -277,16 +291,17 @@ class IDPFoldMultimer(LightningModule):
         )
 
         # atom_name and residue_name
-        output_atom_name = [convert_atom_name_id(i) for i in input_feature_dict['ref_atom_name_chars'][0]]
+        output_atom_name = convert_atom_name_id(input_feature_dict['ref_atom_name_chars'][0])
         output_residue_name = [restypes[input_feature_dict['aatype'][0][i]]
-                               for i in input_feature_dict['ref_token2atom_idx'][0]]
+                               for i in input_feature_dict['atom_to_token_idx']]
 
+        print(pred_coordinates.shape)
         # save output
         write_pdb_raw(
             atom_names=output_atom_name,
             aatypes=output_residue_name,
-            atom_res_map=input_feature_dict['ref_token2atom_idx'][0],
-            atom_positions=pred_coordinates,
+            atom_res_map=input_feature_dict['atom_to_token_idx'],
+            atom_positions=pred_coordinates.squeeze(),
             output_path=output_dir,
             accession_code=input_feature_dict['accession_code'][0],
             mode='single'
@@ -301,7 +316,7 @@ class IDPFoldMultimer(LightningModule):
             state["ema_params"] = self.ema_wrapper.shadow
         return state
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict, strict=True):
         # Load EMA parameters from the state_dict
         if 'ema_params' in state_dict:
             if hasattr(self, "ema_wrapper"):
@@ -330,19 +345,10 @@ class IDPFoldMultimer(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
-        if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "monitor": "val/loss",
-                    "interval": "epoch",
-                    "frequency": 1,
-                },
-            }
-        return {"optimizer": optimizer}
+        return {
+            "optimizer": self.optimizer,
+            "lr_scheduler": self.lr_scheduler,
+        }
 
 
 if __name__ == "__main__":

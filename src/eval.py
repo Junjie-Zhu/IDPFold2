@@ -36,7 +36,7 @@ from src.utils import (
     log_hyperparameters,
     task_wrapper,
     checkpoint_utils,
-    plot_utils,
+#     plot_utils,
 )
 from src.common.pdb_utils import extract_backbone_coords
 # from src.metrics import metrics 
@@ -86,7 +86,7 @@ def evaluate_prediction(pred_dir: str, target_dir: str = None, tag: str = None):
             if f_name == 'js_tica':
                 eval_res[f_name][target] = res[0]['pred']
                 save_to = os.path.join(output_dir, f"tica_{target}_{tag}_{timestamp}.png")
-                plot_utils.scatterplot_2d(res[1], save_to=save_to, ref_key='target')
+                # plot_utils.scatterplot_2d(res[1], save_to=save_to, ref_key='target')
             else:
                 eval_res[f_name][target] = res['pred']
     
