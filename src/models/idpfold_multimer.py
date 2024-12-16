@@ -70,7 +70,6 @@ class IDPFoldMultimer(LightningModule):
         :param scheduler: The learning rate scheduler to use for training.
         """
         super().__init__()
-        self.automatic_optimization = False
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
@@ -109,10 +108,8 @@ class IDPFoldMultimer(LightningModule):
         """
         return self.net(x)
 
-    def on_train_start(self) -> None:
-        """Lightning hook that is called when training begins."""
-        # by default lightning executes validation step sanity checks before training starts,
-        # so it's worth to make sure validation metrics don't store results from these checks
+    def on_fit_start(self) -> None:
+        """Lightning hook that is called when the fit begins."""
         if self.ema_config.get("ema_decay", -1) > 0:
             assert self.ema_config.ema_decay < 1
             self.ema_wrapper = EMAWrapper(
@@ -121,6 +118,11 @@ class IDPFoldMultimer(LightningModule):
                 self.ema_config.ema_mutable_param_keywords,
             )
             self.ema_wrapper.register()
+
+    def on_train_start(self) -> None:
+        """Lightning hook that is called when training begins."""
+        # by default lightning executes validation step sanity checks before training starts,
+        # so it's worth to make sure validation metrics don't store results from these checks
 
         self.val_loss.reset()
         self.val_loss_best.reset()
@@ -182,18 +184,14 @@ class IDPFoldMultimer(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
-        self.optimizer.zero_grad()
         loss = self.model_step(input_feature_dict)
-        self.manual_backward(loss)
-        self.optimizer.step()
-        self.lr_scheduler.step()
 
         # update and log metrics
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
-        # # return loss or backpropagation will fail
-        # return loss
+        # return loss or backpropagation will fail
+        return loss
 
     def on_train_batch_end(self, outputs, batch, batch_idx) -> None:
         """Lightning hook that is called after every training batch."""
@@ -315,20 +313,14 @@ class IDPFoldMultimer(LightningModule):
 
         return pred_coordinates
 
-    def state_dict(self):
-        # Include EMA parameters in the state_dict
-        state = super().state_dict()
+    def on_save_checkpoint(self, checkpoint):
         if hasattr(self, "ema_wrapper"):
-            state["ema_params"] = self.ema_wrapper.shadow
-        return state
+            checkpoint["ema_params"] = self.ema_wrapper.shadow
 
-    def load_state_dict(self, state_dict, strict=True):
-        # Load EMA parameters from the state_dict
-        if 'ema_params' in state_dict:
-            if hasattr(self, "ema_wrapper"):
-                self.ema_wrapper.shadow = state_dict['ema_params']
-            del state_dict['ema_params']  # Remove EMA from the standard model state_dict
-        super().load_state_dict(state_dict)
+    def on_load_checkpoint(self, checkpoint):
+        if hasattr(self, "ema_wrapper"):
+            self.ema_wrapper.shadow = checkpoint["ema_params"]
+        checkpoint.pop("ema_params", None)
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
@@ -353,7 +345,11 @@ class IDPFoldMultimer(LightningModule):
         """
         return {
             "optimizer": self.optimizer,
-            "lr_scheduler": self.lr_scheduler,
+            "lr_scheduler": {
+                "scheduler": self.lr_scheduler,
+                "interval": "step",
+                "frequency": 1,
+            }
         }
 
 
