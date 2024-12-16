@@ -233,7 +233,9 @@ class IDPFoldMultimer(LightningModule):
 
         # save model manually
         if self.current_epoch % 5 == 0 or self.val_loss_best.compute() == _vall:
-            self.save_checkpoint(f"model_epoch_{self.current_epoch}.ckpt")
+            self.trainer.save_checkpoint(
+                f'ckpt/model_{self.current_epoch}.ckpt',  # to revise
+            )
         self.log("val/loss_best", self.val_loss_best.compute(), sync_dist=True, prog_bar=True)
 
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
