@@ -23,6 +23,21 @@ In this project, we utilized the atom-level diffusion framework raised by AlphaF
 
 <hr>
 
+## Current progress
+
+- The trained model is able to generate seemingly reasonable protein conformations.
+
+## Problems to be Solved
+
+Bugs in code:
+- Currently EMA is initialized on training start, which lead to failure in resuming training from checkpoint.
+- Automatic checkpoint saving is somehow not working currently.
+- Training at `diffusion_sample=8` leads to extreme instability in training. (A confusing U-shaped loss curve after about 8 epochs)
+
+Functions to be added:
+- Generating conformations that are more continuous.
+- Test on MDP and IDP dataset.
+
 The following content is to be updated...
 
 ## 🚀  Quickstart
