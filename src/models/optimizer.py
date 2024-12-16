@@ -191,7 +191,7 @@ class AlphaFold3LRScheduler(LRScheduler):
         if step <= self.warmup_steps:
             lr = (step + 1) / (self.warmup_steps + 1) * self.lr
         else:
-            decay_count = (step - self.warmup_steps) // self.decay_steps
+            decay_count = step // self.decay_steps
             lr = self.lr * (self.decay_factor**decay_count)
         return lr
 
