@@ -1,4 +1,5 @@
 import os
+import time
 from contextlib import nullcontext
 from typing import Any, Dict, Tuple, Optional
 from random import random
@@ -278,13 +279,18 @@ class IDPFoldMultimer(LightningModule):
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
 
-        input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_com"])
+        add_condition = False
+        if add_condition:
+            input_feature_dict["ref_pos"] += input_feature_dict["residue_com_diff"]
+        else:
+            input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_com"])
 
         restypes = [
             'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
             'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
         ]
 
+        time0 = time.time()
         pred_coordinates = sample_diffusion(
             denoise_net=self.net,
             input_feature_dict=input_feature_dict,
@@ -293,12 +299,16 @@ class IDPFoldMultimer(LightningModule):
             noise_schedule=noise_schedule,
             inplace_safe=False,
         )
+        with open('./time_record.txt', 'a') as f:
+            acc_code = input_feature_dict['accession_code'][0]
+            f.write(f'{acc_code} {time.time() - time0}\n')
 
         # atom_name and residue_name
         output_atom_name = convert_atom_name_id(input_feature_dict['ref_atom_name_chars'][0])
         output_residue_name = [restypes[input_feature_dict['aatype'][0][i]]
                                for i in input_feature_dict['atom_to_token_idx']]
 
+        print(pred_coordinates.shape)
         # save output
         write_pdb_raw(
             atom_names=output_atom_name,

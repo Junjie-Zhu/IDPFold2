@@ -112,7 +112,9 @@ def get_atom_features(data_object, ccd_atom14):
         ref_positions[index_start:index_end] = ccd_atom14[int(data_object['aatype'][token])]['coord'][atom_index]
 
         crt_com = calc_centre_of_mass(atom_positions[index_start:index_end], atom_elements[index_start:index_end] * 2)
+        # crt_com = residue_positions[1]
         crt_ref_com = ccd_atom14[int(data_object['aatype'][token])]['com']
+        # crt_ref_com = ccd_atom14[int(data_object['aatype'][token])]['coord'][1]
 
         atom_com[index_start:index_end] = crt_com * torch.ones_like(atom_positions[index_start:index_end])
         ref_com[index_start:index_end] = crt_ref_com * torch.ones_like(atom_positions[index_start:index_end])
@@ -422,7 +424,7 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
         """return single pyg.Data() instance
         """
         data_path = self.data[idx]
-        accession_code = os.path.splitext(os.path.basename(data_path))[0].split('.')[0]
+        accession_code = os.path.splitext(os.path.basename(data_path))[0].split('.')[0].replace('_first', '')
         
         if self.suffix == '.pkl':
             # Load pickled protein
