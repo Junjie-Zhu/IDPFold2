@@ -42,30 +42,22 @@ The following content is to be updated...
 
 ## 🚀  Quickstart
 
+Fetch the project and install dependencies:
+
 ```bash
 # clone project
-git clone https://github.com/ashleve/lightning-hydra-template
-cd lightning-hydra-template
+git clone https://github.com/Junjie-Zhu/AI2PSE
+cd AI2PSE
 
-# [OPTIONAL] create conda environment
-conda create -n myenv python=3.9
-conda activate myenv
-
-# install pytorch according to instructions
-# https://pytorch.org/get-started/
-
-# install requirements
-pip install -r requirements.txt
+# create conda environment
+conda env create -f environment.yml
 ```
 
-Template contains example with MNIST classification.<br>
-When running `python src/train.py` you should see something like this:
+Generating protein conformations based on example sequence in `data/example.fasta`:
 
-<div align="center">
+```bash
 
-![](https://github.com/ashleve/lightning-hydra-template/blob/resources/terminal.png)
-
-</div>
+````
 
 ## ⚡  Your Superpowers
 

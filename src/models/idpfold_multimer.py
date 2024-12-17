@@ -299,7 +299,6 @@ class IDPFoldMultimer(LightningModule):
         output_residue_name = [restypes[input_feature_dict['aatype'][0][i]]
                                for i in input_feature_dict['atom_to_token_idx']]
 
-        print(pred_coordinates.shape)
         # save output
         write_pdb_raw(
             atom_names=output_atom_name,
@@ -321,6 +320,18 @@ class IDPFoldMultimer(LightningModule):
         if hasattr(self, "ema_wrapper"):
             self.ema_wrapper.shadow = checkpoint["ema_params"]
         checkpoint.pop("ema_params", None)
+
+    def load_state_dict(self, state_dict: Dict[str, Any], strict: bool = True) -> None:
+        """Load the state_dict into the model.
+
+        :param state_dict: The state_dict to load.
+        :param strict: Whether to strictly enforce that the keys in state_dict match the keys
+            returned by this module's state_dict() function.
+        """
+        if hasattr(self, "ema_wrapper"):
+            self.ema_wrapper.load_state_dict(state_dict)
+        state_dict.pop("ema_params", None)
+        super().load_state_dict(state_dict, strict=strict)
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
