@@ -308,7 +308,6 @@ class IDPFoldMultimer(LightningModule):
         output_residue_name = [restypes[input_feature_dict['aatype'][0][i]]
                                for i in input_feature_dict['atom_to_token_idx']]
 
-        print(pred_coordinates.shape)
         # save output
         write_pdb_raw(
             atom_names=output_atom_name,
@@ -328,6 +327,7 @@ class IDPFoldMultimer(LightningModule):
 
     def on_load_checkpoint(self, checkpoint):
         if hasattr(self, "ema_wrapper"):
+            self.log("Loading EMA params from checkpoint.")
             self.ema_wrapper.shadow = checkpoint["ema_params"]
         checkpoint.pop("ema_params", None)
 
@@ -339,6 +339,7 @@ class IDPFoldMultimer(LightningModule):
             returned by this module's state_dict() function.
         """
         if hasattr(self, "ema_wrapper"):
+            self.log("Loading EMA params from state_dict.")
             self.ema_wrapper.load_state_dict(state_dict)
         state_dict.pop("ema_params", None)
         super().load_state_dict(state_dict, strict=strict)
