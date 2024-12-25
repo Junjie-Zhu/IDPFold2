@@ -26,6 +26,7 @@ from glob import glob
 from typing import List, Dict, Any, Optional
 from tempfile import NamedTemporaryFile
 
+import torch
 from tqdm import tqdm
 import mdtraj as md
 import numpy as np
