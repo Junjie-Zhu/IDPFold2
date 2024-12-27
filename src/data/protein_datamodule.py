@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional, Tuple, List, Sequence
 
 import torch
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split, WeightedRandomSampler
 from lightning import LightningDataModule
 from hydra.utils import instantiate
 
@@ -58,52 +58,7 @@ class BatchTensorConverter:
 
 
 class ProteinDataModule(LightningDataModule):
-    """`LightningDataModule` for a single protein dataset,
-        for pretrain or finetune purpose.
-
-    ### To be revised.### 
-    
-    The MNIST database of handwritten digits has a training set of 60,000 examples, and a test set of 10,000 examples.
-    It is a subset of a larger set available from NIST. The digits have been size-normalized and centered in a
-    fixed-size image. The original black and white images from NIST were size normalized to fit in a 20x20 pixel box
-    while preserving their aspect ratio. The resulting images contain grey levels as a result of the anti-aliasing
-    technique used by the normalization algorithm. the images were centered in a 28x28 image by computing the center of
-    mass of the pixels, and translating the image so as to position this point at the center of the 28x28 field.
-
-    A `LightningDataModule` implements 7 key methods:
-
-    ```python
-        def prepare_data(self):
-        # Things to do on 1 GPU/TPU (not on every GPU/TPU in DDP).
-        # Download data, pre-process, split, save to disk, etc...
-
-        def setup(self, stage):
-        # Things to do on every process in DDP.
-        # Load data, set variables, etc...
-
-        def train_dataloader(self):
-        # return train dataloader
-
-        def val_dataloader(self):
-        # return validation dataloader
-
-        def test_dataloader(self):
-        # return test dataloader
-
-        def predict_dataloader(self):
-        # return predict dataloader
-
-        def teardown(self, stage):
-        # Called on every process in DDP.
-        # Clean up after fit or test.
-    ```
-
-    This allows you to share a full dataset without explaining how to download,
-    split, transform and process the data.
-
-    Read the docs:
-        https://lightning.ai/docs/pytorch/latest/data/datamodule.html
-    """
+    """DataModule for a protein dataset with weighted sampling for training."""
 
     def __init__(
         self,
@@ -114,6 +69,8 @@ class ProteinDataModule(LightningDataModule):
         num_workers: int = 0,
         pin_memory: bool = False,
         shuffle: bool = False,
+        idr_dataset: Optional[torch.utils.data.Dataset] = None,
+        idr_weight: float = 0.3,
     ) -> None:
         """Initialize a `MNISTDataModule`.
 
@@ -130,6 +87,8 @@ class ProteinDataModule(LightningDataModule):
         self.save_hyperparameters(logger=False)
         
         self.dataset = dataset
+        self.idr_dataset = idr_dataset
+        self.idr_weight = idr_weight
         
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
@@ -167,18 +126,40 @@ class ProteinDataModule(LightningDataModule):
 
         # load and split datasets only if not loaded already
         if stage == 'fit' and not self.data_train and not self.data_val:
-            # dataset = ConcatDataset(datasets=[trainset, testset])
-            self.data_train, self.data_val = random_split(
-                dataset=self.dataset,
-                lengths=self.hparams.train_val_split,
-                generator=torch.Generator().manual_seed(self.hparams.generator_seed),
-            )
+            if self.idr_dataset is None:
+                self.data_train, self.data_val = random_split(
+                    dataset=self.dataset,
+                    lengths=self.hparams.train_val_split,
+                    generator=torch.Generator().manual_seed(self.hparams.generator_seed),
+                )
+            else:
+                self.data_train, self.data_val = random_split(
+                    dataset=self.idr_dataset,
+                    lengths=self.hparams.train_val_split,
+                    generator=torch.Generator().manual_seed(self.hparams.generator_seed),
+                )
         elif stage in ('predict', 'test'):
             self.data_test = self.dataset
         else:
             raise NotImplementedError(f"Stage {stage} not implemented.")
-        
-    def _dataloader_template(self, dataset: Dataset[Any]) -> DataLoader[Any]:
+
+        # Add weighted sampling for both datasets if idr_dataset is provided
+        if self.idr_dataset:
+            # Create weights for the datasets (same weight for each sample in the dataset)
+            weight_dataset = torch.full((len(self.dataset),), 1 - self.idr_weight)
+            weight_idr_dataset = torch.full((len(self.data_train),), self.idr_weight)
+
+            # Combine weights from both datasets
+            combined_weights = torch.cat([weight_dataset, weight_idr_dataset])
+
+            # Create samplers for both datasets
+            self.train_sampler = WeightedRandomSampler(combined_weights, len(combined_weights), replacement=True)
+
+    def _dataloader_template(
+            self,
+            dataset: Dataset[Any],
+            sampler: Optional[WeightedRandomSampler] = None
+    ) -> DataLoader[Any]:
         """Create a dataloader from a dataset.
 
         :param dataset: The dataset.
@@ -199,7 +180,12 @@ class ProteinDataModule(LightningDataModule):
 
         :return: The train dataloader.
         """
-        return self._dataloader_template(self.data_train)
+        # Combine the datasets for training
+        if self.idr_dataset:
+            combined_dataset = torch.utils.data.ConcatDataset([self.dataset, self.data_train])
+            return self._dataloader_template(combined_dataset, self.train_sampler)
+        else:
+            return self._dataloader_template(self.data_train)
            
 
     def val_dataloader(self) -> DataLoader[Any]:

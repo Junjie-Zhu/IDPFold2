@@ -11,6 +11,7 @@ import numpy as np
 import biotite.structure as struc
 import biotite.structure.io as strucio
 import pandas as pd
+from tqdm import tqdm
 
 import residue_constants_ as rc
 
@@ -192,14 +193,19 @@ def main(args):
         "modeled_seq_len": [],
     }
     if args.num_processes == 1:
-        for pdb_path in pdb_paths:
+        for pdb_path in tqdm.tqdm(pdb_paths):
             crt_metadata = _process_fn(pdb_path)
             all_metadata["pdb_name"].extend(crt_metadata["pdb_name"])
             all_metadata["processed_path"].extend(crt_metadata["processed_path"])
             all_metadata["modeled_seq_len"].extend(crt_metadata["modeled_seq_len"])
     else:
         with mp.Pool() as pool:
-            _all_metadata = pool.map(_process_fn, pdb_paths)
+            _all_metadata = []
+            # Use imap to track progress with tqdm
+            for result in tqdm(pool.imap(_process_fn, pdb_paths), total=len(pdb_paths)):
+                _all_metadata.append(result)
+
+        # Now extend the fields in all_metadata
         for list_data in _all_metadata:
             all_metadata["pdb_name"].extend(list_data["pdb_name"])
             all_metadata["processed_path"].extend(list_data["processed_path"])

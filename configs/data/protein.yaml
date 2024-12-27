@@ -11,7 +11,7 @@ dataset:
     max_len: 2000
   transform: 
     _target_: src.data.components.dataset.ProteinFeatureTransform
-    truncate_length: 256
+    truncate_length: 384
     strip_missing_residues: true
     recenter_and_scale: true
     eps: 1e-8

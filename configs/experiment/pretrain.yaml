@@ -17,40 +17,63 @@ callbacks:
   model_checkpoint:
     save_top_k: -1
     every_n_epochs: 5
-    save_last: true
+    save_last: false
+
 
 data:
-  batch_size: 16
+  batch_size: 8
+  idr_weight: 0.3
+  idr_dataset:
+    _target_: src.data.components.dataset.PretrainPDBDataset
+    path_to_dataset: ${paths.idr_path}
+    path_to_seq_embedding: ${paths.seq_embedding_path}
+    metadata_filter:
+      _target_: src.data.components.dataset.MetadataFilter
+      min_len: 10
+      max_len: 2000
+    transform:
+      _target_: src.data.components.dataset.ProteinFeatureTransform
+      truncate_length: 384
+      strip_missing_residues: true
+      recenter_and_scale: true
+      eps: 1e-8
+    suffix: pkl
 
 model:
   ema_config:
-    ema_decay: 0.999
+    ema_decay: -1
   optimizer_config:
     lr: 0.0008
-    warmup_steps: 5000
-    max_steps: 20000000
+    warmup_steps: 7000
+    decay_every_n_steps: 20000
+    max_steps: 15000000
     adam:
       lr: 0.0008
     af3_lr_scheduler:
-      warmup_steps: 5000
-      decay_every_n_steps: 20000000
-      decay_factor: 0.9
+      warmup_steps: 7000
+      decay_every_n_steps: 20000
+      decay_factor: 0.95
       lr: 0.0008
-  diffusion_sample: 8
+  diffusion_sample: 3
+  net:
+    transformer:
+      n_blocks: 12
+      n_heads: 8
 
 trainer:
-  precision: bf16-mixed
+  # precision: bf16-mixed
   # strategy: deepspeed
   min_epochs: 750
   max_epochs: 1000
-  devices: 8
+  devices: 4
   # gradient_clip_val: 0.5
 
 
 tags: ["dev"]
 
-task_name: "dryrun"
+task_name: "pretrain"
 
 seed: 42
 
-ckpt_path: null
+ckpt_path: /root/autodl-tmp/ai2pse/logs/pretrain/runs/2024-12-24_09-31-12/checkpoints/epoch_074.ckpt 
+
