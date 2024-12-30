@@ -268,6 +268,7 @@ class IDPFoldMultimer(LightningModule):
         n_replica = self.hparams.inference.n_replica
         output_dir = self.hparams.inference.output_dir
         batch_size = self.hparams.inference.replica_per_batch
+        add_condition = self.hparams.inference.add_condition
 
         s_inputs = input_feature_dict["seq_emb"]
         input_feature_dict['atom_to_token_idx'] = input_feature_dict['atom_to_token_idx'][0]
@@ -279,7 +280,6 @@ class IDPFoldMultimer(LightningModule):
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
 
-        add_condition = False
         if add_condition:
             input_feature_dict["ref_pos"] += input_feature_dict["residue_com_diff"]
         else:
@@ -290,18 +290,21 @@ class IDPFoldMultimer(LightningModule):
             'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
         ]
 
-        time0 = time.time()
-        pred_coordinates = sample_diffusion(
-            denoise_net=self.net,
-            input_feature_dict=input_feature_dict,
-            s_inputs=s_inputs,
-            N_sample=n_replica,
-            noise_schedule=noise_schedule,
-            inplace_safe=False,
-        )
-        with open('./time_record.txt', 'a') as f:
-            acc_code = input_feature_dict['accession_code'][0]
-            f.write(f'{acc_code} {time.time() - time0}\n')
+        concat_pred_coordinates = []
+        for batch in range(n_replica // batch_size):
+
+            pred_coordinates = sample_diffusion(
+                denoise_net=self.net,
+                input_feature_dict=input_feature_dict,
+                s_inputs=s_inputs,
+                N_sample=batch_size,
+                noise_schedule=noise_schedule,
+                inplace_safe=False,
+            )
+            concat_pred_coordinates.append(pred_coordinates)
+            torch.cuda.empty_cache()
+
+        pred_coordinates = torch.cat(concat_pred_coordinates.squeeze(), dim=0)
 
         # atom_name and residue_name
         output_atom_name = convert_atom_name_id(input_feature_dict['ref_atom_name_chars'][0])
@@ -313,7 +316,7 @@ class IDPFoldMultimer(LightningModule):
             atom_names=output_atom_name,
             aatypes=output_residue_name,
             atom_res_map=input_feature_dict['atom_to_token_idx'],
-            atom_positions=pred_coordinates.squeeze(),
+            atom_positions=pred_coordinates,
             output_path=output_dir,
             accession_code=input_feature_dict['accession_code'][0],
             mode='single'
