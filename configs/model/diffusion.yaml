@@ -94,6 +94,7 @@ inference:
   n_replica: 5
   replica_per_batch: 5
   self_conditioning: true
+  add_condition: false
   output_dir: ${paths.output_dir}/samples
 
 # compile model for faster training with pytorch 2.0

@@ -153,9 +153,9 @@ class IDPFoldMultimer(LightningModule):
         input_feature_dict.pop("lddt_mask")
 
         # Add centre of mass condition
-        if "residue_com_diff" in input_feature_dict.keys() and random() < 0.3:
-            input_feature_dict["ref_pos"] += input_feature_dict["residue_com_diff"]
-        else:
+        # if "residue_com_diff" in input_feature_dict.keys() and random() < 0.5:
+        #     input_feature_dict["ref_pos"] += input_feature_dict["residue_com_diff"]
+        if random() > 0.95:
             input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_com"])
 
         _, x_denoised, x_noise_level = sample_diffusion_training(
@@ -230,11 +230,6 @@ class IDPFoldMultimer(LightningModule):
         if hasattr(self, "ema_wrapper"):
             self.ema_wrapper.restore()
 
-        # save model manually
-        if self.current_epoch % 5 == 0 or self.val_loss_best.compute() == _vall:
-            self.trainer.save_checkpoint(
-                f'ckpt/model_{self.current_epoch}.ckpt',  # to revise
-            )
         self.log("val/loss_best", self.val_loss_best.compute(), sync_dist=True, prog_bar=True)
 
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
@@ -267,8 +262,8 @@ class IDPFoldMultimer(LightningModule):
         # extract hyperparams for inference
         n_replica = self.hparams.inference.n_replica
         output_dir = self.hparams.inference.output_dir
-        batch_size = self.hparams.inference.replica_per_batch
         add_condition = self.hparams.inference.add_condition
+        batch_size = self.hparams.inference.replica_per_batch
 
         s_inputs = input_feature_dict["seq_emb"]
         input_feature_dict['atom_to_token_idx'] = input_feature_dict['atom_to_token_idx'][0]
@@ -280,9 +275,7 @@ class IDPFoldMultimer(LightningModule):
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
 
-        if add_condition:
-            input_feature_dict["ref_pos"] += input_feature_dict["residue_com_diff"]
-        else:
+        if not add_condition:
             input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_com"])
 
         restypes = [
@@ -301,11 +294,11 @@ class IDPFoldMultimer(LightningModule):
                 noise_schedule=noise_schedule,
                 inplace_safe=False,
             )
-            concat_pred_coordinates.append(pred_coordinates)
+            concat_pred_coordinates.append(pred_coordinates.squeeze())
             torch.cuda.empty_cache()
-
-        pred_coordinates = torch.cat(concat_pred_coordinates.squeeze(), dim=0)
-
+            
+        pred_coordinates = torch.cat(concat_pred_coordinates, dim=0)
+        
         # atom_name and residue_name
         output_atom_name = convert_atom_name_id(input_feature_dict['ref_atom_name_chars'][0])
         output_residue_name = [restypes[input_feature_dict['aatype'][0][i]]
@@ -316,7 +309,7 @@ class IDPFoldMultimer(LightningModule):
             atom_names=output_atom_name,
             aatypes=output_residue_name,
             atom_res_map=input_feature_dict['atom_to_token_idx'],
-            atom_positions=pred_coordinates,
+            atom_positions=pred_coordinates.squeeze(),
             output_path=output_dir,
             accession_code=input_feature_dict['accession_code'][0],
             mode='single'
@@ -342,7 +335,7 @@ class IDPFoldMultimer(LightningModule):
             returned by this module's state_dict() function.
         """
         if hasattr(self, "ema_wrapper"):
-            self.log("Loading EMA params from state_dict.")
+            self.log("Loading EMA params from checkpoint.")
             self.ema_wrapper.load_state_dict(state_dict)
         state_dict.pop("ema_params", None)
         super().load_state_dict(state_dict, strict=strict)

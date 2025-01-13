@@ -111,8 +111,8 @@ def get_atom_features(data_object, ccd_atom14):
         atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int64)
         ref_positions[index_start:index_end] = ccd_atom14[int(data_object['aatype'][token])]['coord'][atom_index]
 
-        crt_com = calc_centre_of_mass(atom_positions[index_start:index_end], atom_elements[index_start:index_end] * 2)
-        # crt_com = residue_positions[1]
+        # crt_com = calc_centre_of_mass(atom_positions[index_start:index_end], atom_elements[index_start:index_end] * 2)
+        crt_com = residue_positions[1]
         crt_ref_com = ccd_atom14[int(data_object['aatype'][token])]['com']
         # crt_ref_com = ccd_atom14[int(data_object['aatype'][token])]['coord'][1]
 
@@ -448,8 +448,15 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
 
         # Apply data transform
         if self.transform is not None:
-            data_object.pop('chain_ids')
+            if 'chain_ids' in data_object.keys():
+                data_object.pop('chain_ids')
             data_object, label_object = self.transform(data_object, self.ccd_atom14)
+            
+            # fixed_mask = torch.zeros_like(data_object['ref_mask'], dtype=torch.float)
+            # # randomly mask 20% of the atoms
+            # mask_idx = torch.randperm(fixed_mask.shape[0])[:int(fixed_mask.shape[0] * 0.2)]
+            # fixed_mask[mask_idx] = 1
+            # data_object['fixed_mask'] = fixed_mask
 
         data_object['accession_code'] =  accession_code
 

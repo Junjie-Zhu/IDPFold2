@@ -519,13 +519,17 @@ class DiffusionModule(nn.Module):
                 input_feature_dict["ref_com"],
             )
         else:
-            s_single, z_pair = self.diffusion_conditioning(
-                input_feature_dict["residue_index"].unsqueeze(1),
-                t_hat_noise_level,
-                input_feature_dict["seq_mask"].unsqueeze(1).expand(-1, N_sample, -1),
-                s_inputs,
-                input_feature_dict["ref_com"],
-            )  # [..., N_sample, N_token, c_s], [..., N_token, N_token, c_z]
+            try:
+                s_single, z_pair = self.diffusion_conditioning(
+                    input_feature_dict["residue_index"].unsqueeze(1),
+                    t_hat_noise_level,
+                    input_feature_dict["seq_mask"].unsqueeze(1).expand(-1, N_sample, -1),
+                    s_inputs,
+                    input_feature_dict["ref_com"],
+                )
+            except:
+                print(input_feature_dict["accession_code"])
+            # [..., N_sample, N_token, c_s], [..., N_token, N_token, c_z]
 
         # Fine-grained checkpoint for finetuning stage 2 (token num: 768) for avoiding OOM
         if blocks_per_ckpt and self.use_fine_grained_checkpoint:

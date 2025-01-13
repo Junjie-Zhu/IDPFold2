@@ -22,22 +22,6 @@ callbacks:
 
 data:
   batch_size: 8
-  idr_weight: 0.3
-  idr_dataset:
-    _target_: src.data.components.dataset.PretrainPDBDataset
-    path_to_dataset: ${paths.idr_path}
-    path_to_seq_embedding: ${paths.seq_embedding_path}
-    metadata_filter:
-      _target_: src.data.components.dataset.MetadataFilter
-      min_len: 10
-      max_len: 2000
-    transform:
-      _target_: src.data.components.dataset.ProteinFeatureTransform
-      truncate_length: 384
-      strip_missing_residues: true
-      recenter_and_scale: true
-      eps: 1e-8
-    suffix: pkl
 
 model:
   ema_config:
@@ -75,5 +59,6 @@ task_name: "pretrain"
 
 seed: 42
 
-ckpt_path: /root/autodl-tmp/ai2pse/logs/pretrain/runs/2024-12-24_09-31-12/checkpoints/epoch_074.ckpt 
+ckpt_path: data/pretrained_exp_099.pth
+
 

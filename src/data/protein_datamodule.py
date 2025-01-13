@@ -89,7 +89,7 @@ class ProteinDataModule(LightningDataModule):
         self.dataset = dataset
         self.idr_dataset = idr_dataset
         self.idr_weight = idr_weight
-        
+
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
         self.data_test: Optional[Dataset] = None
@@ -225,4 +225,5 @@ class ProteinDataModule(LightningDataModule):
         :param state_dict: The datamodule state returned by `self.state_dict()`.
         """
         pass
+
 
