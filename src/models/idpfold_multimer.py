@@ -1,8 +1,5 @@
 import os
-import time
-from contextlib import nullcontext
-from typing import Any, Dict, Tuple, Optional
-from random import random
+from typing import Any, Dict, Tuple
 
 import torch
 from lightning import LightningModule
@@ -16,7 +13,6 @@ from src.models.components.generator import (
 )
 from src.models.optimizer import get_optimizer, get_lr_scheduler, is_loss_nan_check
 from src.models.ema import EMAWrapper
-from src.utils.torch_utils import autocasting_disable_decorator
 from src.data.components.dataset import convert_atom_name_id
 from src.common.pdb_utils import write_pdb_raw
 
@@ -151,12 +147,6 @@ class IDPFoldMultimer(LightningModule):
         input_feature_dict.pop("coordinate")
         input_feature_dict.pop("coordinate_mask")
         input_feature_dict.pop("lddt_mask")
-
-        # Add centre of mass condition
-        # if "residue_com_diff" in input_feature_dict.keys() and random() < 0.5:
-        #     input_feature_dict["ref_pos"] += input_feature_dict["residue_com_diff"]
-        if random() > 0.95:
-            input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_com"])
 
         _, x_denoised, x_noise_level = sample_diffusion_training(
             noise_sampler=self.train_noise_sampler,

@@ -14,6 +14,10 @@ task_name: "eval"
 
 tags: ["dev"]
 
+model:
+  net:
+    training: False
+
 # passing checkpoint path is necessary for evaluation
 ckpt_path: ${paths.data_dir}/ckpt/pretrain.pth
 pred_dir: null

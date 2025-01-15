@@ -57,6 +57,7 @@ net:
     c_token: 384
     c_atom: 128
     c_atompair: 16
+  training: True
   # blocks_per_ckpt: 1
 loss:
   _target_: src.models.loss.AllLosses
