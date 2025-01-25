@@ -4,7 +4,7 @@ _target_: src.data.protein_datamodule.ProteinDataModule
 dataset:
   _target_: src.data.components.dataset.SamplingPDBDataset
   path_to_dataset: ${paths.test_data_path}
-  path_to_seq_embedding: ${paths.seq_embedding_path}
+  path_to_seq_embedding: ${paths.test_embedding_path}
   transform: 
     _target_: src.data.components.dataset.ProteinFeatureTransform
     truncate_length: null

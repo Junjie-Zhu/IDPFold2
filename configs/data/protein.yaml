@@ -19,7 +19,7 @@ dataset:
 
 batch_size: 2 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 generator_seed: 42
-train_val_split: [0.94, 0.06]
+train_val_split: [0.95, 0.05]
 num_workers: 8
 pin_memory: false
 shuffle: false

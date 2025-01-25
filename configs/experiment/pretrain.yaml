@@ -21,7 +21,7 @@ callbacks:
 
 
 data:
-  batch_size: 8
+  batch_size: 6
 
 model:
   ema_config:
@@ -47,9 +47,9 @@ model:
 trainer:
   # precision: bf16-mixed
   # strategy: deepspeed
-  min_epochs: 750
-  max_epochs: 1000
-  devices: 4
+  min_epochs: 150
+  max_epochs: 200
+  devices: 3
   # gradient_clip_val: 0.5
 
 
@@ -59,6 +59,6 @@ task_name: "pretrain"
 
 seed: 42
 
-ckpt_path: data/pretrained_exp_099.pth
+ckpt_path: null
 
 

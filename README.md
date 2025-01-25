@@ -29,15 +29,9 @@ In this project, we utilized the atom-level diffusion framework raised by AlphaF
 
 ## Problems to be Solved
 
-Bugs in code:
-- Currently EMA is initialized on training start, which lead to failure in resuming training from checkpoint.
-- Training at `diffusion_sample=8` leads to extreme instability in training. (A confusing U-shaped loss curve after about 7 epochs)
-  - It seems training instability not comes from `diffusion_sample` as at `diffusion_sample=4` the model is still unstable after exactly 14 epochs.
-  - Now trying full-precision training
-
 Problems faced:
-- Adding CG representation leads to failure in generating reasonable conformations.
-- The model is not able to generate continuous conformations.
+- Finetuning on mixed dataset did not improve the performance. (Now trying fully unconditioned training with only MSE)
+- Diversity of generated conformations is limited. (To find a solution)
 
 Functions to be added:
 - Generating conformations that are more continuous.

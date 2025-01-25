@@ -495,24 +495,24 @@ class DiffusionModule(nn.Module):
         N_sample = r_noisy.size(-3)
         assert t_hat_noise_level.size(-1) == N_sample
 
-        if self.training:
-            # Add random masks on ref_com
-            random_state = random()
-            if random_state < 0.5:  # 50% chance to mask ref_com
-                input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_com"])
-            elif random_state < 0.9:  # 40% chance to mask random positions in ref_com
-                mask = torch.rand_like(input_feature_dict["ref_com"]) < 0.3
-                input_feature_dict["ref_com"] = input_feature_dict["ref_com"] * mask
-            else:  # 10% chance to keep ref_com as it is
-                pass
-
-            # Add random_mask on r_noisy
-            random_state = random()
-            if random_state < 0.3:  # 30% chance to mask random positions in r_noisy
-                mask = torch.rand_like(r_noisy) < 0.3
-                r_noisy = r_noisy * mask
-            else:  # 70% chance to keep r_noisy as it is
-                pass
+        # if self.training:
+        #     # Add random masks on ref_com
+        #     random_state = random()
+        #     if random_state < 0.5:  # 50% chance to mask ref_com
+        #         input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_com"])
+        #     elif random_state < 0.9:  # 40% chance to mask random positions in ref_com
+        #         mask = torch.rand_like(input_feature_dict["ref_com"]) < 0.3
+        #         input_feature_dict["ref_com"] = input_feature_dict["ref_com"] * mask
+        #     else:  # 10% chance to keep ref_com as it is
+        #         pass
+        #
+        #     # Add random_mask on r_noisy
+        #     random_state = random()
+        #     if random_state < 0.3:  # 30% chance to mask random positions in r_noisy
+        #         mask = torch.rand_like(r_noisy) < 0.3
+        #         r_noisy = r_noisy * mask
+        #     else:  # 70% chance to keep r_noisy as it is
+        #         pass
 
         # N_token = s_inputs.size(-2)
         # self_conditioning_ca = []

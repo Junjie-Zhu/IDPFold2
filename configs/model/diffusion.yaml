@@ -30,7 +30,7 @@ net:
     num_bins: 22
     min_bin: 1e-5
     max_bin: 20.0
-    self_conditioning: True
+    self_conditioning: False
   atom_encoder:
     _target_: src.models.components.transformer.AtomAttentionEncoder
     n_blocks: 3
