@@ -1,4 +1,5 @@
 import os
+from random import random
 from typing import Any, Dict, Tuple
 
 import torch
@@ -157,6 +158,10 @@ class IDPFoldMultimer(LightningModule):
             N_sample=N_sample,
             diffusion_chunk_size=None,
         )
+
+        # create a mask tensor of the same shape as input_feature_dict["ref_com"].shape[:-1], 30% is masked
+        com_mask = torch.rand(input_feature_dict["ref_com"].shape[:-1]) < 0.3
+        input_feature_dict["ref_com"] *= ~com_mask[..., None].to(input_feature_dict["ref_com"].device)
 
         pred_dict = {
             "coordinate": x_denoised,
