@@ -57,7 +57,6 @@ net:
     c_token: 384
     c_atom: 128
     c_atompair: 16
-  training: True
   # blocks_per_ckpt: 1
 loss:
   _target_: src.models.loss.AllLosses
@@ -89,6 +88,7 @@ optimizer_config:
     decay_factor: 0.90
     lr: 0.0018
 diffusion_sample: 4
+mode: pretrain
 
 # default hparam for sampling s2011
 inference:

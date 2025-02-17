@@ -4,7 +4,6 @@
 # License (the "License"); you may not use this file except in
 # compliance with the License. You may obtain a copy of the
 # License at
-from random import random
 #     https://creativecommons.org/licenses/by-nc/4.0/
 
 # Unless required by applicable law or agreed to in writing, software
@@ -16,7 +15,6 @@ from random import random
 from typing import Any, Callable, Optional
 
 import torch
-
 from src.utils.model_utils import centre_random_augmentation
 
 
@@ -249,6 +247,7 @@ def sample_diffusion_training(
     s_inputs: torch.Tensor,
     N_sample: int = 1,
     diffusion_chunk_size: Optional[int] = None,
+    mode: str = "pretrain",
 ) -> tuple[torch.Tensor, ...]:
     """Implements diffusion training as described in AF3 Appendix at page 23.
     It performances denoising steps from time 0 to time T.
@@ -276,14 +275,23 @@ def sample_diffusion_training(
     batch_size_shape = label_dict["coordinate"].shape[:-2]
     device = label_dict["coordinate"].device
     dtype = label_dict["coordinate"].dtype
-    # Areate N_sample versions of the input structure by randomly rotating and translating
-    x_gt_augment = centre_random_augmentation(
-        x_input_coords=label_dict["coordinate"],
-        N_sample=N_sample,
-        mask=label_dict["coordinate_mask"],
-    ).to(
-        dtype
-    )  # [..., N_sample, N_atom, 3]
+
+    # Create N_sample versions of the input structure by randomly rotating and translating
+    if mode == "pretrain":
+        x_gt_augment = centre_random_augmentation(
+            x_input_coords=label_dict["coordinate"],
+            N_sample=N_sample,
+            mask=label_dict["coordinate_mask"],
+        ).to(
+            dtype
+        )  # [..., N_sample, N_atom, 3]
+    elif mode == "finetune":
+        x_gt_augment, x_ref = centre_random_augmentation(
+            x_input_coords=input_feature_dict["ref_pos"],  # input coordinates
+            N_sample=N_sample,
+            mask=label_dict["coordinate_mask"],
+            ref_coords=label_dict["coordinate"],  # target coordinates, aligned to input
+        )
 
     # Add independent noise to each structure
     # sigma: independent noise-level [..., N_sample]
@@ -292,32 +300,19 @@ def sample_diffusion_training(
     noise = torch.randn_like(x_gt_augment, dtype=dtype) * sigma[..., None, None]
 
     # Get denoising outputs [..., N_sample, N_atom, 3]
-    if diffusion_chunk_size is None:
+    if mode == "pretrain":
         x_denoised = denoise_net(
             x_noisy=x_gt_augment + noise,
             t_hat_noise_level=sigma,
             input_feature_dict=input_feature_dict,
             s_inputs=s_inputs,
         )
-    else:
-        x_denoised = []
-        no_chunks = N_sample // diffusion_chunk_size + (
-            N_sample % diffusion_chunk_size != 0
+    elif mode == "finetune":
+        x_denoised = denoise_net(
+            x_noisy=x_ref - x_gt_augment + noise,
+            t_hat_noise_level=sigma,
+            input_feature_dict=input_feature_dict,
+            s_inputs=s_inputs,
         )
-        for i in range(no_chunks):
-            x_noisy_i = (x_gt_augment + noise)[
-                ..., i * diffusion_chunk_size : (i + 1) * diffusion_chunk_size, :, :
-            ]
-            t_hat_noise_level_i = sigma[
-                ..., i * diffusion_chunk_size : (i + 1) * diffusion_chunk_size
-            ]
-            x_denoised_i = denoise_net(
-                x_noisy=x_noisy_i,
-                t_hat_noise_level=t_hat_noise_level_i,
-                input_feature_dict=input_feature_dict,
-                s_inputs=s_inputs,
-            )
-            x_denoised.append(x_denoised_i)
-        x_denoised = torch.cat(x_denoised, dim=-3)
 
     return x_gt_augment, x_denoised, sigma

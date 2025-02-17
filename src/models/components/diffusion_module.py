@@ -361,7 +361,6 @@ class DiffusionModule(nn.Module):
         blocks_per_ckpt: Optional[int] = None,
         use_fine_grained_checkpoint: bool = False,
         initialization: Optional[dict[str, Union[str, float, bool]]] = None,
-        training: bool = True,
     ) -> None:
         """
         Args:
@@ -410,7 +409,6 @@ class DiffusionModule(nn.Module):
         self.atom_attention_decoder = atom_decoder
 
         self.init_parameters(initialization)
-        self.training = training
 
     def init_parameters(self, initialization: dict):
         """

@@ -3,7 +3,7 @@ import os
 import pickle
 from pathlib import Path
 from glob import glob
-from random import random
+import random
 from typing import Optional, Sequence, List, Union
 from functools import lru_cache
 import tree
@@ -14,7 +14,6 @@ import torch
 
 from src.common import residue_constants, data_transforms, rigid_utils, protein
 from src.utils.model_utils import uniform_random_rotation, expand_at_dim, rot_vec_mul
-
 
 CA_IDX = residue_constants.atom_order['CA']
 DTYPE_MAPPING = {
@@ -82,6 +81,7 @@ def convert_atom_name_id(onehot_tensor: torch.Tensor):
 def calc_centre_of_mass(coords, atom_mass):
     mass_coords = coords * atom_mass[:, None]
     return torch.sum(mass_coords, dim=0) / torch.sum(atom_mass)
+
 
 def get_atom_features(data_object, ccd_atom14):
 
@@ -180,6 +180,80 @@ def get_atom_features(data_object, ccd_atom14):
     return output_batch, label_batch
 
 
+def get_pair_atom_features(data_object_1, data_object_2):
+
+    # the given data objects should be of the same topology
+    atom_mask = data_object_1['atom_mask']
+
+    # atom positions here are from data object 2
+    atom_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
+
+    # reference positions are from data object 1
+    ref_positions = torch.zeros(int(atom_mask.sum()), 3, dtype=torch.float32)
+
+    token2atom_map = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
+    atom_elements = torch.zeros(int(atom_mask.sum()), dtype=torch.int64)
+    atom_charge = torch.zeros(int(atom_mask.sum()), dtype=torch.float32)
+
+    index_start, token = 0, 0
+    atom_type = []
+    for residues, ref_positions, residue_positions in zip(atom_mask, data_object_1['atom_positions'], data_object_2['atom_positions']):
+        length = int(residues.sum())
+        index_end = index_start + length
+
+        token2atom_map[index_start:index_end] += token
+
+        atom_index = torch.where(residues)[0]
+        atom_positions[index_start:index_end] = residue_positions[atom_index]
+        atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int64)
+        ref_positions[index_start:index_end] = ref_positions[atom_index]
+
+        atom_type.extend([atom_types[i] for i in atom_index])
+
+        index_start = index_end
+        token += 1
+
+    atom_space_uid = token2atom_map
+    atom_name_char = convert_atom_id_name(atom_type)
+
+    onehot_dict = {}
+    for index, key in enumerate(range(32)):
+        onehot = [0] * 32
+        onehot[index] = 1
+        onehot_dict[key] = onehot
+
+    onehot_encoded_data = [onehot_dict[int(item)] for item in atom_elements]
+    atom_elements = torch.Tensor(onehot_encoded_data)
+
+    output_batch = {
+        'atom_to_token_idx': token2atom_map,
+
+        'residue_index': data_object_1['residue_index'],
+        'seq_mask': torch.ones_like(data_object_1['residue_index'], dtype=torch.float32),
+        'aatype': data_object_1['aatype'],
+
+        'seq_emb': data_object_1['seq_emb'],
+
+        'ref_pos': ref_positions,
+        'ref_space_uid': atom_space_uid,
+        'ref_atom_name_chars': atom_name_char,
+        'ref_element': atom_elements,
+        'ref_mask': torch.ones_like(atom_space_uid, dtype=torch.float)
+    }
+
+    label_batch = {
+        'coordinate': atom_positions,
+        'coordinate_mask': torch.ones_like(atom_positions[:, 0]).squeeze(),
+    }
+
+    # calculate the distance matrix from coordinates
+    distance_matrix = label_batch['coordinate'][:, None, :] - label_batch['coordinate'][None, :, :]
+    lddt_mask = distance_matrix.norm(dim=-1) < 15.0
+    label_batch['lddt_mask'] = lddt_mask
+
+    return output_batch, label_batch
+
+
 class ProteinFeatureTransform:
     def __init__(self, 
                  unit: Optional[str] = 'angstrom', 
@@ -203,24 +277,39 @@ class ProteinFeatureTransform:
         self.recenter_and_scale = recenter_and_scale
         self.eps = eps
         
-    def __call__(self, chain_feats, ccd_atom14):
+    def __call__(self, chain_feats,
+                 ccd_atom14: Optional[dict] = None,
+                 extra_chain_feats: Optional[dict] = None):
         chain_feats = self.patch_feats(chain_feats)
         
         if self.strip_missing_residues:
             chain_feats = self.strip_ends(chain_feats)
+            if extra_chain_feats is not None:
+                extra_chain_feats = self.strip_ends(extra_chain_feats)
         
         if self.truncate_length is not None:
             chain_feats = self.random_truncate(chain_feats, max_len=self.truncate_length)
+            if extra_chain_feats is not None:
+                extra_chain_feats = self.random_truncate(extra_chain_feats, max_len=self.truncate_length)
         
         # Recenter and scale atom positions
         if self.recenter_and_scale:
             chain_feats = self.recenter_and_scale_coords(chain_feats, coordinate_scale=self.coordinate_scale, eps=self.eps)
+            if extra_chain_feats is not None:
+                extra_chain_feats = self.recenter_and_scale_coords(extra_chain_feats, coordinate_scale=self.coordinate_scale, eps=self.eps)
         
         # Map to torch Tensor
         chain_feats = self.map_to_tensors(chain_feats)
+        if extra_chain_feats is not None:
+            extra_chain_feats = self.map_to_tensors(extra_chain_feats)
 
         # transform to all-atom features
-        chain_feats, label_dict = get_atom_features(chain_feats, ccd_atom14)
+        if ccd_atom14 is not None:
+            chain_feats, label_dict = get_atom_features(chain_feats, ccd_atom14)
+        elif extra_chain_feats is not None:
+            chain_feats, label_dict = get_pair_atom_features(chain_feats, extra_chain_feats)
+        else:
+            raise ValueError("ccd or structure reference should be provided")
 
         # Add extra features from AF2 
         # chain_feats = self.protein_data_transform(chain_feats)
@@ -450,7 +539,7 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
         if self.transform is not None:
             if 'chain_ids' in data_object.keys():
                 data_object.pop('chain_ids')
-            data_object, label_object = self.transform(data_object, self.ccd_atom14)
+            data_object, label_object = self.transform(data_object, ccd_atom14=self.ccd_atom14)
             
             # fixed_mask = torch.zeros_like(data_object['ref_mask'], dtype=torch.float)
             # # randomly mask 20% of the atoms
@@ -463,6 +552,105 @@ class RandomAccessProteinDataset(torch.utils.data.Dataset):
         data_object.update(label_object)
         return data_object  # dict of arrays
 
+
+class PairwiseProteinDataset(torch.utils.data.Dataset):
+    """Random access to pickle protein objects of dataset.
+
+    dict_keys(['atom_positions', 'aatype', 'atom_mask', 'residue_index', 'chain_index', 'b_factors'])
+
+    Note that each value is a ndarray in shape (L, *), for example:
+        'atom_positions': (L, 37, 3)
+    """
+
+    def __init__(self,
+                 path_to_dataset: Union[Path, str],
+                 path_to_seq_embedding: Optional[Path] = None,
+                 metadata_filter: Optional[MetadataFilter] = None,
+                 training: bool = True,
+                 transform: Optional[ProteinFeatureTransform] = None,
+                 suffix: Optional[str] = '.pkl',
+                 accession_code_fillter: Optional[Sequence[str]] = None,
+                 **kwargs,
+                 ):
+        super().__init__()
+        path_to_dataset = os.path.expanduser(path_to_dataset)
+        suffix = suffix if suffix.startswith('.') else '.' + suffix
+        assert suffix in ('.pkl', '.pdb'), f"Invalid suffix: {suffix}"
+
+        assert path_to_dataset.endswith('.csv'), f"Invalid file extension: {path_to_dataset} (have to be .csv)"
+        self._df = pd.read_csv(path_to_dataset)
+        self._df.sort_values('modeled_seq_len', ascending=False)
+        if metadata_filter:
+            self._df = metadata_filter(self._df)
+        self._data = self._df['processed_path'].tolist()
+
+        if accession_code_fillter and len(accession_code_fillter) > 0:
+            self._data = [p for p in self._data
+                          if np.isin(os.path.splitext(os.path.basename(p))[0], accession_code_fillter)
+                          ]
+
+        self.data = np.asarray(self._data)
+        self.path_to_seq_embedding = os.path.expanduser(path_to_seq_embedding) \
+            if path_to_seq_embedding is not None else None
+        self.suffix = suffix
+        self.transform = transform
+        self.training = training  # not implemented yet
+
+    @property
+    def num_samples(self):
+        return len(self.data)
+
+    def len(self):
+        return self.__len__()
+
+    def __len__(self):
+        return self.num_samples
+
+    def get(self, idx):
+        return self.__getitem__(idx)
+
+    @lru_cache(maxsize=100)
+    def __getitem__(self, idx):
+        """return single pyg.Data() instance
+        """
+        datapair_path = self.data[idx]
+
+        # randomly sample two proteins
+        datapair_path = random.shuffle(datapair_path)[:2]
+        accession_code = os.path.splitext(os.path.basename(datapair_path[0]))[0]
+
+        assert self.suffix == '.pkl', f"In training with structure pairs {self.suffix} is not supported, use pkl instead"
+        # Load pickled protein
+        with open(datapair_path[0], 'rb') as f:
+            data_object_1 = pickle.load(f)
+        with open(datapair_path[1], 'rb') as f:
+            data_object_2 = pickle.load(f)
+
+        # Get sequence embedding if have
+        if self.path_to_seq_embedding is not None:
+            with open(os.path.join(self.path_to_seq_embedding, f"{accession_code}.pkl"), 'rb') as f:
+                embed_dict = pickle.load(f)
+                data_object_1.update(
+                    {
+                        'seq_emb': embed_dict['representations'],
+                    }  # 33 is for ESM650M
+                )
+
+        # Apply data transform
+        if self.transform is not None:
+            if 'chain_ids' in data_object_1.keys():
+                data_object_1.pop('chain_ids')
+            if 'chain_ids' in data_object_2.keys():
+                data_object_2.pop('chain_ids')
+            data_object, label_object = self.transform(data_object_1, extra_chain_feats=data_object_2)
+
+        data_object['accession_code'] = accession_code
+
+        # different from random access dataset,
+        # pairwise dataset returns reference positions as coordinates of structure 1,
+        # label positions as coordinates of structure 2
+        data_object.update(label_object)
+        return data_object  # dict of arrays
     
 
 class PretrainPDBDataset(RandomAccessProteinDataset):
@@ -476,6 +664,20 @@ class PretrainPDBDataset(RandomAccessProteinDataset):
                                                  metadata_filter=metadata_filter,
                                                  transform=transform,
                                                  **kwargs,
+        )
+
+
+class FinetuneTrajectoryDataset(PairwiseProteinDataset):
+    def __init__(self,
+                 path_to_dataset: str,
+                 metadata_filter: MetadataFilter,
+                 transform: ProteinFeatureTransform,
+                 **kwargs,
+    ):
+        super(FinetuneTrajectoryDataset, self).__init__(path_to_dataset=path_to_dataset,
+                                                        metadata_filter=metadata_filter,
+                                                        transform=transform,
+                                                        **kwargs,
         )
 
 

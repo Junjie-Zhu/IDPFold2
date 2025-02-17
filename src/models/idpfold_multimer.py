@@ -58,6 +58,7 @@ class IDPFoldMultimer(LightningModule):
         ema_config: Dict[str, Any],
         optimizer_config: Dict[str, Any],
         diffusion_sample: int,
+        mode: str,
         inference: dict[str, Any],
         compile: bool=False
     ) -> None:
@@ -83,6 +84,7 @@ class IDPFoldMultimer(LightningModule):
         self.ema_config = ema_config
         self.lr_scheduler_config = optimizer_config
         self.N_sample = diffusion_sample
+        self.mode = mode
 
         self.init_scheduler()
 
@@ -139,7 +141,8 @@ class IDPFoldMultimer(LightningModule):
         N_sample = self.N_sample
         s_inputs = input_feature_dict["seq_emb"].unsqueeze(1).expand(-1, N_sample, -1, -1)
         input_feature_dict['atom_to_token_idx'] = input_feature_dict['atom_to_token_idx'][0]
-        
+
+
         label_dict = {
             "coordinate": input_feature_dict["coordinate"],
             "coordinate_mask": input_feature_dict["coordinate_mask"],
@@ -149,6 +152,14 @@ class IDPFoldMultimer(LightningModule):
         input_feature_dict.pop("coordinate_mask")
         input_feature_dict.pop("lddt_mask")
 
+        if self.mode == 'pretrain':
+            com_mask = torch.rand(input_feature_dict["ref_com"].shape[:-1]) > 0.3
+            input_feature_dict["ref_com"] *= ~com_mask[..., None].to(input_feature_dict["ref_com"].device)
+        elif self.mode == 'finetune':
+            input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_positions"])
+        else:
+            raise ValueError(f"mode {self.mode} not supported")
+
         _, x_denoised, x_noise_level = sample_diffusion_training(
             noise_sampler=self.train_noise_sampler,
             denoise_net=self.net,
@@ -157,16 +168,19 @@ class IDPFoldMultimer(LightningModule):
             s_inputs=s_inputs,
             N_sample=N_sample,
             diffusion_chunk_size=None,
+            model=self.mode,
         )
 
-        # create a mask tensor of the same shape as input_feature_dict["ref_com"].shape[:-1], 30% is masked
-        com_mask = torch.rand(input_feature_dict["ref_com"].shape[:-1]) < 0.3
-        input_feature_dict["ref_com"] *= ~com_mask[..., None].to(input_feature_dict["ref_com"].device)
-
-        pred_dict = {
-            "coordinate": x_denoised,
-            "noise_level": x_noise_level,
-        }
+        if self.mode == 'pretrain':
+            pred_dict = {
+                "coordinate": x_denoised,
+                "noise_level": x_noise_level,
+            }
+        elif self.mode == 'finetune':
+            pred_dict = {
+                "coordinate": _ + x_denoised,
+                "noise_level": x_noise_level,
+            }
         loss = self.loss(input_feature_dict, pred_dict, label_dict)
         return loss
 
