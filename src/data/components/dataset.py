@@ -197,7 +197,7 @@ def get_pair_atom_features(data_object_1, data_object_2):
 
     index_start, token = 0, 0
     atom_type = []
-    for residues, ref_positions, residue_positions in zip(atom_mask, data_object_1['atom_positions'], data_object_2['atom_positions']):
+    for residues, ref_pos, residue_positions in zip(atom_mask, data_object_1['atom_positions'], data_object_2['atom_positions']):
         length = int(residues.sum())
         index_end = index_start + length
 
@@ -206,7 +206,7 @@ def get_pair_atom_features(data_object_1, data_object_2):
         atom_index = torch.where(residues)[0]
         atom_positions[index_start:index_end] = residue_positions[atom_index]
         atom_elements[index_start:index_end] = torch.tensor([element_atomic_number[i] for i in atom_index], dtype=torch.int64)
-        ref_positions[index_start:index_end] = ref_positions[atom_index]
+        ref_positions[index_start:index_end] = ref_pos[atom_index]
 
         atom_type.extend([atom_types[i] for i in atom_index])
 
@@ -281,6 +281,8 @@ class ProteinFeatureTransform:
                  ccd_atom14: Optional[dict] = None,
                  extra_chain_feats: Optional[dict] = None):
         chain_feats = self.patch_feats(chain_feats)
+        if extra_chain_feats is not None:
+            extra_chain_feats = self.patch_feats(extra_chain_feats)
         
         if self.strip_missing_residues:
             chain_feats = self.strip_ends(chain_feats)
@@ -288,9 +290,9 @@ class ProteinFeatureTransform:
                 extra_chain_feats = self.strip_ends(extra_chain_feats)
         
         if self.truncate_length is not None:
-            chain_feats = self.random_truncate(chain_feats, max_len=self.truncate_length)
-            if extra_chain_feats is not None:
-                extra_chain_feats = self.random_truncate(extra_chain_feats, max_len=self.truncate_length)
+            chain_feats, extra_chain_feats = self.random_truncate(chain_feats,
+                                                                  max_len=self.truncate_length,
+                                                                  ref_feats=extra_chain_feats)  # for finetuning the truncated part should be the same
         
         # Recenter and scale atom positions
         if self.recenter_and_scale:
@@ -345,7 +347,7 @@ class ProteinFeatureTransform:
         return chain_feats
     
     @staticmethod
-    def random_truncate(chain_feats, max_len):
+    def random_truncate(chain_feats, max_len, ref_feats=None):
         L = chain_feats['aatype'].shape[0]
         if L > max_len:
             # Randomly truncate
@@ -353,6 +355,12 @@ class ProteinFeatureTransform:
             end = start + max_len
             chain_feats = tree.map_structure(
                     lambda x: x[start : end], chain_feats)
+            if ref_feats is not None:
+                ref_feats = tree.map_structure(
+                        lambda x: x[start : end], ref_feats)
+
+        if ref_feats is not None:
+            return chain_feats, ref_feats
         return chain_feats
     
     @staticmethod
@@ -613,7 +621,7 @@ class PairwiseProteinDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         """return single pyg.Data() instance
         """
-        datapair_path = self.data[idx]
+        datapair_path = eval(self.data[idx])
 
         # randomly sample two proteins
         datapair_path = random.shuffle(datapair_path)[:2]
@@ -631,6 +639,11 @@ class PairwiseProteinDataset(torch.utils.data.Dataset):
             with open(os.path.join(self.path_to_seq_embedding, f"{accession_code}.pkl"), 'rb') as f:
                 embed_dict = pickle.load(f)
                 data_object_1.update(
+                    {
+                        'seq_emb': embed_dict['representations'],
+                    }  # 33 is for ESM650M
+                )
+                data_object_2.update(
                     {
                         'seq_emb': embed_dict['representations'],
                     }  # 33 is for ESM650M

@@ -155,7 +155,8 @@ def centre_random_augmentation(
 
     if ref_coords is not None:
         # align ref_coords to x_augment_coords
-        ref_coords = align_pred_to_true(
+        ref_coords = expand_at_dim(ref_coords, dim=-3, n=N_sample)
+        ref_coords, _, _ = align_pred_to_true(
             pred_pose=ref_coords,
             true_pose=x_augment_coords,
             atom_mask=None,

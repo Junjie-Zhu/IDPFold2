@@ -2,7 +2,7 @@ _target_: src.data.protein_datamodule.ProteinDataModule
 # data_dir: ${paths.data_dir}
 
 dataset:
-  _target_: src.data.components.dataset.PretrainPDBDataset
+  _target_: src.data.components.dataset.FinetuneTrajectoryDataset
   path_to_dataset: ${paths.data_path}
   path_to_seq_embedding: ${paths.seq_embedding_path}
   metadata_filter: 

@@ -142,7 +142,6 @@ class IDPFoldMultimer(LightningModule):
         s_inputs = input_feature_dict["seq_emb"].unsqueeze(1).expand(-1, N_sample, -1, -1)
         input_feature_dict['atom_to_token_idx'] = input_feature_dict['atom_to_token_idx'][0]
 
-
         label_dict = {
             "coordinate": input_feature_dict["coordinate"],
             "coordinate_mask": input_feature_dict["coordinate_mask"],
@@ -156,7 +155,7 @@ class IDPFoldMultimer(LightningModule):
             com_mask = torch.rand(input_feature_dict["ref_com"].shape[:-1]) > 0.3
             input_feature_dict["ref_com"] *= ~com_mask[..., None].to(input_feature_dict["ref_com"].device)
         elif self.mode == 'finetune':
-            input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_positions"])
+            input_feature_dict["ref_com"] = torch.zeros_like(input_feature_dict["ref_pos"])
         else:
             raise ValueError(f"mode {self.mode} not supported")
 
@@ -168,7 +167,7 @@ class IDPFoldMultimer(LightningModule):
             s_inputs=s_inputs,
             N_sample=N_sample,
             diffusion_chunk_size=None,
-            model=self.mode,
+            mode=self.mode,
         )
 
         if self.mode == 'pretrain':
