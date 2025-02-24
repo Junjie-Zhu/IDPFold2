@@ -1,4 +1,5 @@
 import os
+from random import random
 from typing import Any, Dict, Tuple
 
 import torch
@@ -147,6 +148,9 @@ class IDPFoldMultimer(LightningModule):
         input_feature_dict.pop("coordinate")
         input_feature_dict.pop("coordinate_mask")
         input_feature_dict.pop("lddt_mask")
+
+        if random() < 0.7:
+            input_feature_dict['ref_com'] = torch.zeros_like(input_feature_dict['ref_com'])
 
         _, x_denoised, x_noise_level = sample_diffusion_training(
             noise_sampler=self.train_noise_sampler,
