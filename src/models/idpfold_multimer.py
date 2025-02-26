@@ -138,7 +138,6 @@ class IDPFoldMultimer(LightningModule):
         """
         N_sample = self.N_sample
         s_inputs = input_feature_dict["seq_emb"].unsqueeze(1).expand(-1, N_sample, -1, -1)
-        input_feature_dict['atom_to_token_idx'] = input_feature_dict['atom_to_token_idx'][0]
         
         label_dict = {
             "coordinate": input_feature_dict["coordinate"],

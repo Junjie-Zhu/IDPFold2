@@ -775,7 +775,8 @@ class AtomAttentionEncoder(nn.Module):
             c_l = c_l.unsqueeze(dim=-3) + self.linear_no_bias_s(
                 self.layernorm_s(
                     broadcast_token_to_atom(
-                        x_token=s, atom_to_token_idx=atom_to_token_idx
+                        x_token=s,
+                        atom_to_token_idx=atom_to_token_idx.unsqueeze(1).expand(-1, N_sample, -1)
                     )
                 )
             )  # [..., N_sample, N_atom, c_atom]
@@ -827,7 +828,7 @@ class AtomAttentionEncoder(nn.Module):
         # Aggregate per-atom representation to per-token representation
         a = aggregate_atom_to_token(
             x_atom=F.relu(self.linear_no_bias_q(q_l)),
-            atom_to_token_idx=atom_to_token_idx,
+            atom_to_token_idx=atom_to_token_idx.unsqueeze(1).expand(-1, N_sample, -1),
             n_token=n_token,
             reduce="mean",
         )  # [..., (N_sample), N_token, c_token]
@@ -911,11 +912,12 @@ class AtomAttentionDecoder(nn.Module):
             torch.Tensor: the updated nosiy coordinates
                 [..., N_atom, 3]
         """
+        N_sample = a.shape[1]
         # Broadcast per-token activiations to per-atom activations and add the skip connection
         q = (
             self.linear_no_bias_a(
                 broadcast_token_to_atom(
-                    x_token=a, atom_to_token_idx=input_feature_dict["atom_to_token_idx"]
+                    x_token=a, atom_to_token_idx=input_feature_dict["atom_to_token_idx"].unsqueeze(1).expand(-1, N_sample, -1)
                 )  # [..., N_atom, c_token]
             )  # [..., N_atom, c_atom]
             + q_skip

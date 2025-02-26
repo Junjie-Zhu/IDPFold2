@@ -879,19 +879,42 @@ def gather_pair_embedding_in_dense_trunk(
     """
     idx_q = idx_q.long()
     idx_k = idx_k.long()
-    assert len(idx_q.shape) == len(idx_k.shape) == 2
+    assert len(idx_q.shape) == len(idx_k.shape)
 
-    # Get the shape parameters
-    N_b, N_q = idx_q.shape
-    N_k = idx_k.shape[1]
+    if len(idx_q.shape) == 2:
+        # Get the shape parameters
+        N_b, N_q = idx_q.shape
+        N_k = idx_k.shape[1]
 
-    # Expand idx_q and idx_k to match the shape required for advanced indexing
-    idx_q_expanded = idx_q.unsqueeze(-1).expand(-1, -1, N_k)
-    idx_k_expanded = idx_k.unsqueeze(1).expand(-1, N_q, -1)
+        # Expand idx_q and idx_k to match the shape required for advanced indexing
+        idx_q_expanded = idx_q.unsqueeze(-1).expand(-1, -1, N_k)
+        idx_k_expanded = idx_k.unsqueeze(1).expand(-1, N_q, -1)
 
-    # Use advanced indexing to gather the desired elements
-    y = x[..., idx_q_expanded, idx_k_expanded, :]
+        # Use advanced indexing to gather the desired elements
+        y = x[..., idx_q_expanded, idx_k_expanded, :]
+    elif len(idx_q.shape) == 3:  # the index also have a batch dimension
+        # Get shape parameters
+        batch_size, N_b, N_q = idx_q.shape
+        N_k = idx_k.shape[-1]
 
+        if len(x.shape) == 5:  # which means a num_sample dimension is added
+            N_sample = x.shape[1]
+            idx_q_expanded = idx_q.unsqueeze(-1).unsqueeze(1).expand(-1, N_sample, -1, -1, N_k)
+            idx_k_expanded = idx_k.unsqueeze(-2).unsqueeze(1).expand(-1, N_sample, -1, N_q, -1)
+            b_idx = torch.arange(batch_size, device=x.device).view(batch_size, 1, 1, 1, 1).expand(batch_size, N_sample,
+                                                                                               N_b, N_q, N_k)
+            s_idx = torch.arange(N_sample, device=x.device).view(1, N_sample, 1, 1, 1).expand(batch_size, N_sample,
+                                                                                              N_b, N_q, N_k)
+            y = x[b_idx, s_idx, idx_q_expanded, idx_k_expanded, :]
+        elif len(x.shape) == 4:  # which means no num_sample dimension
+            idx_q_expanded = idx_q.unsqueeze(-1).expand(-1, -1, -1, N_k)
+            idx_k_expanded = idx_k.unsqueeze(-2).expand(-1, -1, N_q, -1)
+            b_idx = torch.arange(batch_size, device=x.device).view(batch_size, 1, 1, 1).expand(batch_size, N_b, N_q, N_k)
+            y = x[b_idx, idx_q_expanded, idx_k_expanded, :]
+        else:
+            raise ValueError("The input pair representation should have 4 or 5 dimensions")
+    else:
+        raise ValueError("The keys and queries should have 2 or 3 dimensions")
     return y
 
 
@@ -908,7 +931,7 @@ def broadcast_token_to_local_atom_pair(
         z_token (torch.Tensor): token pair embedding
             [..., N_token, N_token, d]
         atom_to_token_idx (torch.Tensor): map atom idx to token idx
-            [N_atom]
+            [..., N_atom]
 
     Returns:
         z_gathered_blocked (torch.Tensor): atom pair embedding, with local blocked shape
