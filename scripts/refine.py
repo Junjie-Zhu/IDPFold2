@@ -1,6 +1,6 @@
 import io
 import os
-from os import cpu_count
+from functools import partial
 from typing import Sequence
 
 import argparse
@@ -10,15 +10,6 @@ from openmm import unit
 from openmm import app as openmm_app
 from tqdm import tqdm
 
-# user-defined parameter
-parser = argparse.ArgumentParser()
-parser.add_argument('--inpath', '-i', type=str, default='./pdbs/',
-                    help='input path')
-parser.add_argument('--outpath', '-o', type=str, default='./refined/',
-                    help='output path')
-parser.add_argument('--max_iterations', '-m', type=int, default=100)
-parser.add_argument('--cuda', action='store_true', default=False)
-args = parser.parse_args()
 
 # default parameter settings
 tolerance = 2.39
@@ -31,28 +22,41 @@ tolerance = tolerance * ENERGY
 stiffness = stiffness * ENERGY / (LENGTH ** 2)
 
 
-def main():
+def main(args):
     inpath = args.inpath
     outpath = args.outpath
     max_iterations = args.max_iterations
     use_gpu = args.cuda
+    debug = args.debug
+    cpu_count = 1 if args.debug else os.cpu_count()
+
+    process_fn_ = partial(
+        process_fn,
+        inpath=inpath,
+        outpath=outpath,
+        max_iterations=max_iterations,
+        use_gpu=use_gpu,
+    )
 
     pdb_list = [i for i in os.listdir(inpath) if i.endswith('.pdb')]
+    if debug:
+        pdb_list = pdb_list[:40]
+        print(f"Debug mode: only processing {len(pdb_list)} PDB files")
+
     if not os.path.exists(outpath):
         os.makedirs(outpath)
 
-    if use_gpu or cpu_count() == 1:
+    if use_gpu or cpu_count == 1:
         print("Using GPU or single CPU")
         for pdb in tqdm(pdb_list):
-            process_fn(pdb, inpath, outpath, max_iterations, use_gpu)
+            process_fn_(pdb)
     else:
-        print(f"Using {cpu_count()} CPUs")
+        print(f"Using {cpu_count} CPUs")
         from multiprocessing import Pool
-        with Pool(cpu_count()) as p:
+        with Pool(cpu_count) as p:
             # imap with tqdm
-            for _ in tqdm(p.imap_unordered(process_fn, pdb_list), total=len(pdb_list)):
+            for _ in tqdm(p.imap_unordered(process_fn_, pdb_list), total=len(pdb_list)):
                 pass
-
 
 
 def fix_structure(pdbfile):
@@ -117,12 +121,12 @@ def minimize(
     pdb_file = io.StringIO(pdb_str)
     pdb = openmm_app.PDBFile(pdb_file)
 
-    force_field = openmm_app.ForceField("amber99sb.xml")
+    force_field = openmm_app.ForceField("amber14/protein.ff14SB.xml")
     constraints = openmm_app.HBonds
     system = force_field.createSystem(pdb.topology, constraints=constraints)
 
-    if stiffness > 0 * ENERGY / (LENGTH ** 2):
-        _add_restraints(system, pdb, stiffness, restraint_set, exclude_residues)
+    # if stiffness > 0 * ENERGY / (LENGTH ** 2):
+    #     _add_restraints(system, pdb, stiffness, restraint_set, exclude_residues)
 
     integrator = openmm.LangevinIntegrator(0, 0.01, 0.0)
     platform = openmm.Platform.getPlatformByName("CUDA" if use_gpu else "CPU")
@@ -159,3 +163,17 @@ def process_fn(pdb_str, inpath, outpath, max_iterations, use_gpu):
         f.write(ret['min_pdb'])
     return ret
 
+
+if __name__ == "__main__":
+    # user-defined parameter
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--inpath', '-i', type=str, default='./pdbs/',
+                        help='input path')
+    parser.add_argument('--outpath', '-o', type=str, default='./refined/',
+                        help='output path')
+    parser.add_argument('--max_iterations', '-m', type=int, default=100)
+    parser.add_argument('--cuda', action='store_true', default=False)
+    parser.add_argument('--debug', action='store_true', default=False)
+    args = parser.parse_args()
+
+    main(args)
