@@ -61,8 +61,6 @@ net:
   # blocks_per_ckpt: 1
 loss:
   _target_: src.models.loss.AllLosses
-  diffusion_lddt_loss_dense: True
-  diffusion_sparse_loss_enable: True
 ema_config:
   ema_decay: -1.0
   eval_ema_only": False  # whether wandb only tracking ema checkpoint metrics

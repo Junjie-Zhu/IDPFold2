@@ -174,8 +174,11 @@ def get_atom_features(data_object, ccd_atom14):
 
     # calculate the distance matrix from coordinates
     distance_matrix = label_batch['coordinate'][:, None, :] - label_batch['coordinate'][None, :, :]
-    lddt_mask = distance_matrix.norm(dim=-1) < 15.0
+    distance_matrix = distance_matrix.norm(dim=-1) < 15.0
+    lddt_mask = distance_matrix < 15.0
+    bond_mask = distance_matrix < 3.
     label_batch['lddt_mask'] = lddt_mask
+    label_batch['bond_mask'] = bond_mask
 
     return output_batch, label_batch
 

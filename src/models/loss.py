@@ -1,3 +1,4 @@
+from cProfile import label
 from typing import Optional
 
 import torch
@@ -204,7 +205,6 @@ class SmoothLDDTLoss(nn.Module):
         self,
         pred_distance: torch.Tensor,
         true_distance: torch.Tensor,
-        distance_mask: torch.Tensor,
         lddt_mask: torch.Tensor,
         diffusion_chunk_size: Optional[int] = None,
     ) -> torch.Tensor:
@@ -533,19 +533,13 @@ class AllLosses(nn.Module):
                  weight_mse: float = 1 / 3,
                  eps=1e-6,
                  sigma_data=16.,
-                 diffusion_lddt_chunk_size=None,
-                 diffusion_lddt_loss_dense: bool = False,
-                 diffusion_sparse_loss_enable: bool = False):
+    ):
         super(AllLosses, self).__init__()
 
         self.mse_loss = MSELoss(weight_mse=weight_mse, eps=eps)
         self.bond_loss = BondLoss(eps=eps)
         self.smooth_lddt_loss = SmoothLDDTLoss(eps=eps)
         self.sigma_data = sigma_data
-
-        self.diffusion_lddt_chunk_size = diffusion_lddt_chunk_size
-        self.diffusion_lddt_loss_dense = diffusion_lddt_loss_dense
-        self.diffusion_sparse_loss_enable = diffusion_sparse_loss_enable
 
     def calculate_losses(
             self,
@@ -557,61 +551,28 @@ class AllLosses(nn.Module):
                                              pred_dict["noise_level"] ** 2 + self.sigma_data ** 2
                                      ) / (self.sigma_data * pred_dict["noise_level"]) ** 2
 
+        pred_distance = torch.cdist(pred_dict["coordinate"], pred_dict["coordinate"])
+        label_distance = torch.cdist(label_dict["coordinate"], label_dict["coordinate"])
+
         loss_fns = {}
-        # if self.diffusion_lddt_loss_dense:
-        #     loss_fns.update(
-        #         {
-        #             "smooth_lddt_loss": lambda: self.smooth_lddt_loss.dense_forward(
-        #                 pred_coordinate=pred_dict["coordinate"],
-        #                 true_coordinate=label_dict["coordinate"],
-        #                 lddt_mask=label_dict["lddt_mask"],
-        #                 diffusion_chunk_size=self.diffusion_lddt_chunk_size,
-        #             )  # it's faster is not OOM
-        #         }
-        #     )
-        # elif self.diffusion_sparse_loss_enable:
-        #     loss_fns.update(
-        #         {
-        #             "smooth_lddt_loss": lambda: self.smooth_lddt_loss.sparse_forward(
-        #                 pred_coordinate=pred_dict["coordinate"],
-        #                 true_coordinate=label_dict["coordinate"],
-        #                 lddt_mask=label_dict["lddt_mask"],
-        #                 diffusion_chunk_size=self.diffusion_lddt_chunk_size,
-        #             )
-        #         }
-        #     )
-        # else:
-        #     loss_fns.update(
-        #         {
-        #             "smooth_lddt_loss": lambda: self.smooth_lddt_loss(
-        #                 pred_distance=pred_dict["distance"],
-        #                 true_distance=label_dict["distance"],
-        #                 distance_mask=label_dict["distance_mask"],
-        #                 lddt_mask=label_dict["lddt_mask"],
-        #                 diffusion_chunk_size=self.diffusion_lddt_chunk_size,
-        #             )
-        #         }
-        #     )
         loss_fns.update(
             {
-                # "bond_loss": lambda: (
-                #     self.bond_loss.sparse_forward(
-                #         pred_coordinate=pred_dict["coordinate"],
-                #         true_coordinate=label_dict["coordinate"],
-                #         distance_mask=label_dict["distance_mask"],
-                #         bond_mask=feat_dict["bond_mask"],
-                #         per_sample_scale=diffusion_per_sample_scale,
-                #     )
-                #     if self.configs.loss.diffusion_sparse_loss_enable
-                #     else self.bond_loss(
-                #         pred_distance=pred_dict["distance"],
-                #         true_distance=label_dict["distance"],
-                #         distance_mask=label_dict["distance_mask"],
-                #         bond_mask=feat_dict["bond_mask"],
-                #         per_sample_scale=diffusion_per_sample_scale,
-                #         diffusion_chunk_size=self.diffusion_bond_chunk_size,
-                #     )
-                # ),
+                "smooth_lddt_loss": lambda: (
+                    self.smooth_lddt_loss(
+                        pred_distance=pred_distance,
+                        true_distance=label_distance,
+                        lddt_mask=label_dict["lddt_mask"],
+                    )
+                ),
+                "bond_loss": lambda: (
+                    self.bond_loss(
+                        pred_distance=pred_distance,
+                        true_distance=label_distance,
+                        distance_mask=label_dict["lddt_mask"],
+                        bond_mask=feat_dict["bond_mask"],
+                        per_sample_scale=diffusion_per_sample_scale,
+                    )
+                ),
                 "mse_loss": lambda: self.mse_loss(
                     pred_coordinate=pred_dict["coordinate"],
                     true_coordinate=label_dict["coordinate"],
