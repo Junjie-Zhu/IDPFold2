@@ -161,10 +161,10 @@ class BioFeatureTransform:
     @staticmethod
     def truncate(atom_object, token_object, truncate_size=384):
         random_state = random.random()
-        if random_state < 0.3:
+        if random_state < 0.6:
             return single_chain_truncate(atom_object, token_object, truncate_size)
-        elif random_state < 0.6:
-            return contiguous_truncate(atom_object, token_object, truncate_size)
+        # elif random_state < 0.6:
+        #     return contiguous_truncate(atom_object, token_object, truncate_size)
         else:
             return spatial_truncate(atom_object, token_object, truncate_size)
 

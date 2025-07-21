@@ -63,7 +63,7 @@ class BioTrainingDataset(torch.utils.data.Dataset):
 class BioInferenceDataset(torch.utils.data.Dataset):
     def __init__(self,
                  path_to_dataset: Union[Path, str],
-                 suffix: str = 'pkl',
+                 suffix: str = 'pkl.gz',
                  transform: Optional[BioFeatureTransform] = None,
                  ):
         super().__init__()
