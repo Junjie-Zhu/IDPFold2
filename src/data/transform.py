@@ -50,6 +50,7 @@ class BioFeatureTransform:
 
         if self.truncate_length is not None:
             atom_object, token_object = self.truncate(atom_object, token_object, truncate_size=self.truncate_length)
+        atom_object['ref_mask'] = np.ones(atom_object['ref_positions'].shape[0])
 
         # Recenter and scale atom positions
         if self.recenter_and_scale:

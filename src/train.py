@@ -157,6 +157,8 @@ def main(args: DictConfig):
         logging.info(model)
         logging.info(f"Model has {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
 
+    training_sample = args.n_samples
+
     # sanity check
     torch.cuda.empty_cache()
     model.eval()
@@ -164,8 +166,6 @@ def main(args: DictConfig):
         for check_iter, check_batch in enumerate(val_loader):
             torch.cuda.empty_cache()
             check_batch = to_device(check_batch, device)
-
-            N_sample = args.num_sample
             s_inputs = check_batch['plm_embedding']
 
             label_dict = {
@@ -174,7 +174,7 @@ def main(args: DictConfig):
                 'lddt_mask': check_batch['lddt_mask'],
                 'bond_mask': check_batch['bond_mask'],
             }
-            for k in label_dict.keys():
+            for k in ['plm_embedding', 'ca_positions', 'coordinate_mask', 'lddt_mask', 'bond_mask']:
                 check_batch.pop(k)
 
             _, x_denoised, x_noise_level = sample_diffusion_training(
@@ -183,7 +183,7 @@ def main(args: DictConfig):
                 label_dict=label_dict,
                 input_feature_dict=check_batch,
                 s_inputs=s_inputs,
-                N_sample=N_sample,
+                N_sample=training_sample,
                 diffusion_chunk_size=None,
             )
 
@@ -208,7 +208,6 @@ def main(args: DictConfig):
         ncols=100,  # Adjust width of the progress bar
     ) if DIST_WRAPPER.rank == 0 else None
     # Main train/eval loop
-    training_sample = args.n_samples
     for crt_epoch in range(start_epoch, args.epochs + 1):
         epoch_loss, epoch_val_loss = 0, 0
         model.train()
@@ -235,9 +234,8 @@ def main(args: DictConfig):
                 'lddt_mask': input_feature_dict['lddt_mask'],
                 'bond_mask': input_feature_dict['bond_mask'],
             }
-            for k in label_dict.keys():
+            for k in ['plm_embedding', 'ca_positions', 'coordinate_mask', 'lddt_mask', 'bond_mask']:
                 input_feature_dict.pop(k)
-            input_feature_dict.pop('plm_embedding')
 
             _, x_denoised, x_noise_level = sample_diffusion_training(
                 noise_sampler=noise_sampler,
@@ -298,7 +296,7 @@ def main(args: DictConfig):
                     'lddt_mask': val_feature_dict['lddt_mask'],
                     'bond_mask': val_feature_dict['bond_mask'],
                 }
-                for k in label_dict.keys():
+                for k in ['plm_embedding', 'ca_positions', 'coordinate_mask', 'lddt_mask', 'bond_mask']:
                     val_feature_dict.pop(k)
 
                 _, x_denoised, x_noise_level = sample_diffusion_training(

@@ -568,7 +568,7 @@ class AllLosses(nn.Module):
                         pred_distance=pred_distance,
                         true_distance=label_distance,
                         distance_mask=label_dict["lddt_mask"],
-                        bond_mask=feat_dict["bond_mask"],
+                        bond_mask=label_dict["bond_mask"],
                         per_sample_scale=diffusion_per_sample_scale,
                     )
                 ),

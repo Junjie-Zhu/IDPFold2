@@ -98,6 +98,7 @@ class SeqEmbedder(nn.Module):
         s_atom: int = 128,
         z_atom: int = 16,
         s_noise: int = 256,
+        sigma_data: float = 16.0,
     ):
         super(SeqEmbedder, self).__init__()
         self.s_input = s_input
@@ -106,6 +107,7 @@ class SeqEmbedder(nn.Module):
         self.s_atom = s_atom
         self.z_atom = z_atom
         self.s_noise = s_noise
+        self.sigma_data = sigma_data
 
         # initial atom embedding
         self.initial_atom_enbedding = AtomAttentionEncoder(
@@ -137,7 +139,7 @@ class SeqEmbedder(nn.Module):
 
         # pair embedding
         self.layernorm_s2z = LayerNorm(self.s_trunk)
-        self.linear_no_bias_s2z = LinearNoBias(in_features=self.s_trunk, out_features=self.z_trunk)
+        self.linear_no_bias_s2z = LinearNoBias(in_features=self.s_trunk, out_features=self.z_trunk // 2)
         self.layernorm_z = LayerNorm(self.z_trunk * 2)
         self.linear_no_bias_z = LinearNoBias(in_features=self.z_trunk * 2, out_features=self.z_trunk)
 
@@ -153,17 +155,17 @@ class SeqEmbedder(nn.Module):
         B, L, _ = plm_embedding.shape
 
         # process single representation
-        s_init, _, _ = self.initial_atom_enbedding(input_feature_dict=feature_dict)
+        s_init, _, _, _ = self.initial_atom_enbedding(input_feature_dict=feature_dict)
         s_init = torch.cat([plm_embedding, s_init], dim=-1)
         s_init = self.linear_no_bias_s(self.layernorm_s(s_init))
 
         # process pair representation
-        z_init = self.layernorm_s2z(self.layernorm_s2z(s_init))
+        z_init = self.linear_no_bias_s2z(self.layernorm_s2z(s_init))
         z_init = torch.cat(
             [torch.tile(z_init[:, :, None, :], (1, 1, L, 1)),
              torch.tile(z_init[:, None, :, :], (1, L, 1, 1))],
             dim=-1).float()
-        z_init = torch.cat([z_init, self.relative_position_encoding(feature_dict)], dim=-1)
+        z_init = z_init + self.relative_position_encoding(feature_dict)
 
         z_trunk = self.transition_z1(z_init)
         z_trunk = self.transition_z2(z_trunk)
@@ -177,7 +179,7 @@ class SeqEmbedder(nn.Module):
         s_trunk = self.transition_s1(s_init)
         s_trunk = self.transition_s2(s_trunk)
 
-        return s_trunk, z_trunk.unsqueeze(-4)
+        return s_trunk, z_trunk.unsqueeze(-4).expand(-1, s_trunk.shape[1], -1, -1, -1)
 
 
 class TemplateEmbedder(nn.Module):

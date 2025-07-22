@@ -111,8 +111,9 @@ def spatial_truncate(atom_object, token_object, truncate_size=384):
     cropped_atom_object = {k: [] for k in atom_object}
     cropped_token_object = {k: [] for k in token_object}
 
-    _, unique_token_indices = np.unique(atom_object['atom_to_token_index'], return_index=True)
-    atom_com = np.stack([atom_object['atom_com'][idx] for idx in unique_token_indices], axis=0)
+    # _, unique_token_indices = np.unique(atom_object['atom_to_token_index'], return_index=True)
+    # atom_com = np.stack([atom_object['atom_com'][idx] for idx in unique_token_indices], axis=0)
+    atom_com = token_object['ca_positions']
 
     # Get a random center residue
     center_atom_index = np.random.randint(0, atom_com.shape[0])
