@@ -53,7 +53,7 @@ class BioFeatureTransform:
 
         # Recenter and scale atom positions
         if self.recenter_and_scale:
-            atom_object = self.recenter_and_scale_coords(atom_object, eps=self.eps)
+            atom_object, token_object = self.recenter_and_scale_coords(atom_object, token_object, eps=self.eps)
         data_object = {**atom_object, **token_object}
 
         data_object = self.map_to_tensors(data_object)
@@ -92,10 +92,12 @@ class BioFeatureTransform:
         return chain_feats
 
     @staticmethod
-    def recenter_and_scale_coords(atom_object, eps=1e-8):
-        atom_center = np.sum(atom_object['atom_positions'], axis=0) / (np.sum(atom_object['atom_mask']) + eps)
-        atom_object['atom_positions'] -= atom_center[None, :]
-        return atom_object
+    def recenter_and_scale_coords(atom_object, token_object, eps=1e-8):
+        _center = np.sum(token_object['ca_positions'], axis=0) / (np.sum(token_object['coordinate_mask']) + eps)
+        # atom_center = np.sum(atom_object['atom_positions'], axis=0) / (np.sum(atom_object['atom_mask']) + eps)
+        atom_object['atom_positions'] -= _center[None, :]
+        token_object['ca_positions'] -= _center[None, :]
+        return atom_object, token_object
 
     @staticmethod
     def truncate(atom_object, token_object, truncate_size=384):

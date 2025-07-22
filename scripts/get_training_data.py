@@ -47,24 +47,29 @@ def process_single_system(data: dict, system_name: str):
     atom_positions = data['atom_positions']  # atom37
     atom_mask = data['atom_mask']  # atom37
     aatype = data['aatype']
+    residue_mask = data['bb_mask']
     residue_index = data['residue_index']
     chain_index = data['chain_index']
-    token_index = data['modeled_idx']
 
     # information to extract
     flatten_atom_positions = []
     atom_to_token_index = []
     ca_positions = []
     ca_mask = []
+    token_index = []
     ref_positions = []
     ref_elements = []
     ref_atom_name_chars = []
 
     chain_start = -1
+    token_start = 0
     seqs_str = []
     for i, (positions, pos_mask,
-            aa, res_i, chain_i, token_i) in enumerate(
-            zip(atom_positions, atom_mask, aatype, residue_index, chain_index, token_index)):
+            aa, res_mask_i, res_i, chain_i) in enumerate(
+            zip(atom_positions, atom_mask, aatype, residue_mask, residue_index, chain_index)):
+        if res_mask_i == 0:
+            continue
+
         if chain_i != chain_start:
             seqs_str.append('')
             chain_start = chain_i
@@ -96,7 +101,6 @@ def process_single_system(data: dict, system_name: str):
         atom_mask = np.zeros((len_ref_info,), dtype=np.float32)
         ca_pos = np.zeros((1, 3), dtype=np.float32)
         ca_mask_ = 0
-        crt_token_index = np.array([token_i] * len_ref_info, dtype=np.int64)
 
         for atom_idx, (pos, mask) in enumerate(zip(positions, pos_mask)):
             if mask == 0:
@@ -113,14 +117,16 @@ def process_single_system(data: dict, system_name: str):
         # apply mask
         mask = (atom_mask * ref_mask).astype(bool)
         atom_pos = atom_pos[mask]
-        crt_token_index = crt_token_index[mask]
         ref_pos = ref_pos[mask]
         element = element[mask]
         atom_name_chars = atom_name_chars[mask]
 
         # append to lists
         flatten_atom_positions.append(atom_pos)
-        atom_to_token_index.append(crt_token_index)
+        atom_to_token_index.extend([token_start] * len(atom_pos))
+        token_index.append(token_start)
+        token_start += 1
+
         ca_positions.append(ca_pos)
         ca_mask.append(ca_mask_)
         ref_positions.append(ref_pos)
@@ -128,17 +134,18 @@ def process_single_system(data: dict, system_name: str):
         ref_atom_name_chars.append(atom_name_chars)
 
     # get the output data dict
+
     data_object = {
         'atom_positions': np.concatenate(flatten_atom_positions),
-        'atom_to_token_index': np.concatenate(atom_to_token_index),
+        'atom_to_token_index': np.array(atom_to_token_index, dtype=np.int64),
 
         'ca_positions': np.concatenate(ca_positions),
         'ca_mask': np.array(ca_mask, dtype=np.float32),
 
-        'aatype': aatype,
-        'chain_index': chain_index,
-        'residue_index': residue_index,
-        'token_index': token_index,
+        'aatype': aatype[residue_mask > 0],
+        'chain_index': chain_index[residue_mask > 0],
+        'residue_index': residue_index[residue_mask > 0],
+        'token_index': np.array(token_index, dtype=np.int32),
 
         'ref_positions': np.concatenate(ref_positions),
         'ref_element': np.concatenate(ref_elements),

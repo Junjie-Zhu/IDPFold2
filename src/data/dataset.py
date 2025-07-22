@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from src.data.transform import FeatureTransform, BioFeatureTransform
+from src.data.transform import BioFeatureTransform
 
 
 class BioTrainingDataset(torch.utils.data.Dataset):

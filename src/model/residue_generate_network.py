@@ -43,7 +43,7 @@ class ResGenNet(nn.Module):
 
         # main chunk
         self.linear_no_bias_a = LinearNoBias(in_features=3, out_features=s_trunk)
-        self.layer_norm_a1 = LayerNorm(in_features=s_trunk)
+        self.layer_norm_a1 = LayerNorm(s_trunk)
         self.linear_no_bias_a1 = LinearNoBias(in_features=s_trunk, out_features=s_trunk)
         self.diffusion_transformer = DiffusionTransformer(
             c_a=s_trunk,
@@ -58,10 +58,10 @@ class ResGenNet(nn.Module):
             block.conditioned_transition_block.adaln.zero_init()
 
         # output module
-        self.layer_norm_o = LayerNorm(in_features=s_trunk)
+        self.layer_norm_o = LayerNorm(s_trunk)
         self.linear_no_bias_o = LinearNoBias(in_features=s_trunk, out_features=3)
 
-        nn.init.zeros(self.linear_no_bias_o.weight)
+        nn.init.zeros_(self.linear_no_bias_o.weight)
 
     def forward(
         self,
@@ -126,7 +126,7 @@ class SeqEmbedder(nn.Module):
         self.fourier_embedding = FourierEmbedding(c=self.s_noise)
         self.layernorm_n = LayerNorm(self.s_noise)
         self.linear_no_bias_n = LinearNoBias(
-            in_features=self.s_noise, out_features=self.c_s
+            in_features=self.s_noise, out_features=self.s_trunk
         )
 
         self.transition_s1 = Transition(c_in=self.s_trunk, n=2)
@@ -137,7 +137,7 @@ class SeqEmbedder(nn.Module):
 
         # pair embedding
         self.layernorm_s2z = LayerNorm(self.s_trunk)
-        self.linear_no_bias_s2z = LinearNoBias(in_features=self.s_trunk, out_features=self.c_s_inputs)
+        self.linear_no_bias_s2z = LinearNoBias(in_features=self.s_trunk, out_features=self.z_trunk)
         self.layernorm_z = LayerNorm(self.z_trunk * 2)
         self.linear_no_bias_z = LinearNoBias(in_features=self.z_trunk * 2, out_features=self.z_trunk)
 

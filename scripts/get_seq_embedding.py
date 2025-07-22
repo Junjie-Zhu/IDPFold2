@@ -1,3 +1,5 @@
+import os
+
 import torch
 from faesm.esm import FAEsmForMaskedLM
 
@@ -22,6 +24,7 @@ with open('./pkl/all_seqs.fasta', 'r') as f:
             seq = l.strip()
             seqs.append((seq_name, seq))
 
+os.makedirs('./embedding', exist_ok=True)
 for (seq_name, seq) in seqs:
     embedding = process_one_seq(seq)
-    torch.save(embedding, f'./embeddings/{seq_name}.pt')
+    torch.save(embedding, f'./embedding/{seq_name}.pt')

@@ -26,7 +26,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="config_train")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="train")
 def main(args: DictConfig):
     logging_dir = os.path.join(args.logging_dir, f"TRAIN_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
     if DIST_WRAPPER.rank == 0:
@@ -149,7 +149,7 @@ def main(args: DictConfig):
     loss_fn = AllLosses(
         weight_mse=args.loss.weight_mse,
         eps=args.loss.eps,
-        reduction=args.loss.reduction
+        sigma_data=args.sigma_data,
     )
 
     # get model summary
