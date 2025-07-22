@@ -1,0 +1,63 @@
+# configurations for training
+
+batch_size: 4  # batch size on single device
+n_samples: 1
+epochs: 200
+sigma_data: 16.0  # noise level for data augmentation
+checkpoint_interval: 10  # save checkpoint every n epochs
+seed: 42
+deterministic: False
+logging_dir: "./logs"  # better absolute path, to revise
+
+resume:
+  ckpt_dir: null
+  load_model_only: True
+
+data:
+  path_to_dataset: "./data/metadata.test.csv"  # better absolute path, to revise
+  truncate_size: 256
+  recenter_atoms: True
+  eps: 1e-8
+  prop_train: 0.95
+  shuffle: False
+  num_workers: 16
+  pin_memory: False
+
+noise:
+  p_mean: -1.2
+  p_std: 1.5
+
+model:
+  s_input: 1280
+  s_trunk: 384
+  z_trunk: 128
+  s_atom: 128
+  z_atom: 16
+  s_noise: 256
+  z_template: 128
+  n_layers: 4
+  n_attn_heads: 8
+
+optimizer:
+  lr: 0.0005
+  weight_decay: 0.
+  beta1: 0.9
+  beta2: 0.999
+  use_adamw: False
+  lr_scheduler: "af3"
+  warmup_steps: 4000
+  decay_every_n_steps: 80000
+  decay_factor: 0.95
+
+loss:
+  weight_mse: 0.33
+  eps: 1e-8
+  reduction: "mean"
+  lddt_enabled: False
+  bond_enabled: True
+  clip_grad_value: 0
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null

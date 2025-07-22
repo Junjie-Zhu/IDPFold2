@@ -53,9 +53,15 @@ class ResGenNet(nn.Module):
             n_heads=n_attn_heads,
         )
 
+        for block in self.diffusion_transformer.blocks:
+            block.attention_pair_bias.layernorm_a.zero_init()
+            block.conditioned_transition_block.adaln.zero_init()
+
         # output module
         self.layer_norm_o = LayerNorm(in_features=s_trunk)
         self.linear_no_bias_o = LinearNoBias(in_features=s_trunk, out_features=3)
+
+        nn.init.zeros(self.linear_no_bias_o.weight)
 
     def forward(
         self,

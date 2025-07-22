@@ -169,9 +169,9 @@ def main(args: DictConfig):
             s_inputs = check_batch['plm_embedding']
 
             label_dict = {
-                'coordinate': check_batch['atom_ca'],
+                'coordinate': check_batch['ca_positions'],
                 'coordinate_mask': check_batch['coordinate_mask'],
-                'lddt_mask': check_batch['bond_mask'],
+                'lddt_mask': check_batch['lddt_mask'],
                 'bond_mask': check_batch['bond_mask'],
             }
             for k in label_dict.keys():
@@ -227,18 +227,17 @@ def main(args: DictConfig):
         for crt_step, input_feature_dict in train_iter:
             torch.cuda.empty_cache()
             input_feature_dict = to_device(input_feature_dict, device)
-
-            N_sample = args.num_sample
             s_inputs = input_feature_dict['plm_embedding']
 
             label_dict = {
-                'coordinate': input_feature_dict['atom_ca'],
+                'coordinate': input_feature_dict['ca_positions'],
                 'coordinate_mask': input_feature_dict['coordinate_mask'],
-                'lddt_mask': input_feature_dict['bond_mask'],
+                'lddt_mask': input_feature_dict['lddt_mask'],
                 'bond_mask': input_feature_dict['bond_mask'],
             }
             for k in label_dict.keys():
                 input_feature_dict.pop(k)
+            input_feature_dict.pop('plm_embedding')
 
             _, x_denoised, x_noise_level = sample_diffusion_training(
                 noise_sampler=noise_sampler,
@@ -246,7 +245,7 @@ def main(args: DictConfig):
                 label_dict=label_dict,
                 input_feature_dict=input_feature_dict,
                 s_inputs=s_inputs,
-                N_sample=N_sample,
+                N_sample=training_sample,
                 diffusion_chunk_size=None,
             )
 
@@ -294,9 +293,9 @@ def main(args: DictConfig):
                 s_inputs = val_feature_dict['plm_embedding']
 
                 label_dict = {
-                    'coordinate': val_feature_dict['atom_ca'],
+                    'coordinate': val_feature_dict['ca_positions'],
                     'coordinate_mask': val_feature_dict['coordinate_mask'],
-                    'lddt_mask': val_feature_dict['bond_mask'],
+                    'lddt_mask': val_feature_dict['lddt_mask'],
                     'bond_mask': val_feature_dict['bond_mask'],
                 }
                 for k in label_dict.keys():

@@ -76,10 +76,13 @@ class BioInferenceDataset(torch.utils.data.Dataset):
             self._df = self._df[self._df['token_num'] <= 2048]
             self._df.sort_values('token_num', ascending=False)
             self._data = self._df['processed_path'].tolist()
+            self._embedding = self._df['embedding'].tolist()
+
         elif os.path.isdir(path_to_dataset):
             self._data = glob(os.path.join(path_to_dataset, f'*.{suffix}'))
 
         self.data = np.asarray(self._data)
+        self.embedding = np.asarray(self._embedding)
         self.transform = transform
 
     @property

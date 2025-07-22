@@ -1,12 +1,9 @@
-import pickle
 import random
 from typing import Optional
-import tree
 
 import numpy as np
 import torch
 
-from src.utils.model_utils import uniform_random_rotation, rot_vec_mul
 from src.data.cropping import single_chain_truncate, contiguous_truncate, spatial_truncate
 
 CA_IDX = 1
@@ -15,7 +12,8 @@ DTYPE_MAPPING = {
     'atom_mask': torch.long,
     'atom_to_token_index': torch.long,
 
-    'atom_ca': torch.float32,
+    'ca_positions': torch.float32,
+    'coordinate_mask': torch.float32,
     'plm_embedding': torch.float32,
     'aatype': torch.int64,
     'moltype': torch.int32,
@@ -29,66 +27,6 @@ DTYPE_MAPPING = {
     'ref_atom_name_chars': torch.int32,
     'ref_space_uid': torch.long,
 }
-atom_types = [
-    'N', 'CA', 'C', 'CB', 'O', 'CG', 'CG1', 'CG2', 'OG', 'OG1', 'SG', 'CD',
-    'CD1', 'CD2', 'ND1', 'ND2', 'OD1', 'OD2', 'SD', 'CE', 'CE1', 'CE2', 'CE3',
-    'NE', 'NE1', 'NE2', 'OE1', 'OE2', 'CH2', 'NH1', 'NH2', 'OH', 'CZ', 'CZ2',
-    'CZ3', 'NZ', 'OXT'
-]
-# define the element atomic number for each atom type
-element_atomic_number = [
-    7, 6, 6, 6, 8, 6, 6, 6, 8, 8, 16, 6,
-    6, 6, 7, 7, 8, 8, 16, 6, 6, 6, 6,
-    7, 7, 7, 8, 8, 6, 7, 7, 8, 6, 6,
-    6, 7, 8
-]
-
-
-def convert_atom_id_name(atom_names: list[str]):
-    """
-        Converts unique atom_id names to integer of atom_name. need to be padded to length 4.
-        Each character is encoded as ord(c) - 32
-    """
-    onehot_dict = {}
-    for index, key in enumerate(range(64)):
-        onehot = [0] * 64
-        onehot[index] = 1
-        onehot_dict[key] = onehot
-
-    mol_encode = []
-    for atom_name in atom_names:
-        # [4, 64]
-        atom_encode = []
-        for name_str in atom_name.ljust(4):
-            atom_encode.append(onehot_dict[ord(name_str) - 32])
-        mol_encode.append(atom_encode)
-    onehot_tensor = torch.Tensor(mol_encode)
-    return onehot_tensor
-
-
-def convert_atom_name_id(onehot_tensor: torch.Tensor):
-    """
-        Converts integer of atom_name to unique atom_id names.
-        Each character is encoded as chr(c + 32)
-    """
-    # Create reverse mapping from one-hot index to characters
-    index_to_char = {index: chr(key + 32) for key, index in enumerate(range(64))}
-
-    # Extract atom names from the tensor
-    atom_names = []
-    for atom_encode in onehot_tensor:
-        atom_name = ''
-        for char_onehot in atom_encode:
-            index = char_onehot.argmax().item()  # Find the index of the maximum value
-            atom_name += index_to_char[index]
-        atom_names.append(atom_name.strip())  # Remove padding spaces
-
-    return atom_names
-
-
-def calc_centre_of_mass(coords, atom_mass):
-    mass_coords = coords * atom_mass[:, None]
-    return torch.sum(mass_coords, dim=0) / torch.sum(atom_mass)
 
 
 class BioFeatureTransform:
@@ -133,7 +71,8 @@ class BioFeatureTransform:
             'ref_atom_name_chars': data_object['ref_atom_name_chars'],
         }
         token_object = {
-            'atom_ca': data_object['atom_ca'],
+            'ca_positions': data_object['ca_positions'],
+            'coordinate_mask': data_object['ca_mask'],
             'plm_embedding': data_object['plm_embedding'],
 
             'aatype': data_object['aatype'],
@@ -173,9 +112,9 @@ class BioFeatureTransform:
         data_object['ref_space_uid'] = data_object['atom_to_token_index']
 
         if training:
-            ca_distance = (data_object['atom_ca'][:, None, :] - data_object['atom_ca'][None, :, :]).norm(dim=-1)
+            ca_distance = (data_object['ca_positions'][:, None, :] - data_object['ca_positions'][None, :, :]).norm(dim=-1)
             data_object['bond_mask'] = ca_distance < 15.0
-            data_object['coordinate_mask'] = torch.ones_like(data_object['token_index'])
+            data_object['lddt_mask'] = data_object['coordinate_mask'][None, :] * data_object['coordinate_mask'][:, None]
 
         return data_object
 
