@@ -98,6 +98,7 @@ def main(args: DictConfig):
         z_template=args.model.z_template,
         n_layers=args.model.n_layers,
         n_attn_heads=args.model.n_attn_heads,
+        sigma_data=args.sigma_data,
     ).to(device)
 
     # initialize diffusion sampler
@@ -286,8 +287,6 @@ def main(args: DictConfig):
             for crt_val_step, val_feature_dict in val_iter:
                 torch.cuda.empty_cache()
                 val_feature_dict = to_device(val_feature_dict, device)
-
-                N_sample = args.num_sample
                 s_inputs = val_feature_dict['plm_embedding']
 
                 label_dict = {
@@ -305,7 +304,7 @@ def main(args: DictConfig):
                     label_dict=label_dict,
                     input_feature_dict=val_feature_dict,
                     s_inputs=s_inputs,
-                    N_sample=N_sample,
+                    N_sample=training_sample,
                     diffusion_chunk_size=None,
                 )
 

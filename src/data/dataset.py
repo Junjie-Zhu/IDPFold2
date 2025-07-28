@@ -28,8 +28,10 @@ class BioTrainingDataset(torch.utils.data.Dataset):
         self._df = self._df[self._df['token_num'] > 20]
         self._df.sort_values('token_num', ascending=False)
         self._data = self._df['processed_path'].tolist()
+        self._embedding = self._df['embedding_path'].tolist()
 
         self.data = np.asarray(self._data)
+        self.embedding = np.asarray(self._embedding)
         self.transform = transform
         self.training = training  # not implemented yet
 
@@ -53,6 +55,8 @@ class BioTrainingDataset(torch.utils.data.Dataset):
 
         with gzip.open(data_path, 'rb') as f:
             data_object = pickle.load(f)
+
+        data_object['plm_embedding'] = torch.load(self.embedding[idx])
 
         if self.transform is not None:
             data_object = self.transform(data_object)
@@ -106,10 +110,10 @@ class BioInferenceDataset(torch.utils.data.Dataset):
         if data_path.endswith('.pkl.gz'):
             with gzip.open(data_path, 'rb') as f:
                 data_object = pickle.load(f)
-        # elif data_path.endswith('.pdb') or data_path.endswith('.cif'):
-        #     data_object = get_cg_repr(get_structure(data_path))
         else:
             raise ValueError(f"Unsupported file format: {data_path}")
+
+        data_object['plm_embedding'] = torch.load(self.embedding[idx])
 
         if self.transform is not None:
             data_object = self.transform(data_object)

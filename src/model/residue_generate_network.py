@@ -22,6 +22,7 @@ class ResGenNet(nn.Module):
         z_template: int = 128,
         n_layers: int = 8,
         n_attn_heads: int = 8,
+        sigma_data: float = 16.0
     ):
         super(ResGenNet, self).__init__()
 
@@ -63,14 +64,20 @@ class ResGenNet(nn.Module):
 
         nn.init.zeros_(self.linear_no_bias_o.weight)
 
+        self.sigma_data = sigma_data
+
     def forward(
         self,
         noisy_structure: torch.Tensor,
         plm_embedding: torch.Tensor,
         feature_dict: Dict[str, torch.Tensor],
-        noise_scale: float,
+        noise_scale: torch.Tensor,
         template: Optional[torch.Tensor],
     ):
+        # scaling noisy structure
+        noisy_structure = noisy_structure / torch.sqrt(self.sigma_data ** 2 + noise_scale ** 2)[..., None, None]
+
+        # network part
         s_embed, z_embed = self.seq_embedder(plm_embedding, feature_dict, noise_scale)
 
         a_embed = self.linear_no_bias_a(noisy_structure)
@@ -85,6 +92,13 @@ class ResGenNet(nn.Module):
             z=z_embed,
         )
         a_out = self.linear_no_bias_o(self.layer_norm_o(a_out))
+
+        # reverse-scaling for output structure
+        s_ratio = (noise_scale / self.sigma_data)[..., None, None].to(a_out.dtype)
+        a_out = (
+            1 / (1 + s_ratio ** 2) * noisy_structure
+            + noise_scale[..., None, None] / torch.sqrt(1 + s_ratio ** 2) * a_out
+        ).to(a_out.dtype)
 
         return a_out
 
