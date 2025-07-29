@@ -103,7 +103,8 @@ class BioFeatureTransform:
     @staticmethod
     def truncate(atom_object, token_object, truncate_size=384):
         random_state = random.random()
-        if random_state < 0.6:
+        chain_num = len(np.unique(token_object['chain_index']))
+        if chain_num == 1 or random_state < 0.3:
             return single_chain_truncate(atom_object, token_object, truncate_size)
         # elif random_state < 0.6:
         #     return contiguous_truncate(atom_object, token_object, truncate_size)
@@ -116,8 +117,9 @@ class BioFeatureTransform:
 
         if training:
             ca_distance = (data_object['ca_positions'][:, None, :] - data_object['ca_positions'][None, :, :]).norm(dim=-1)
-            data_object['bond_mask'] = ca_distance < 15.0
-            data_object['lddt_mask'] = data_object['coordinate_mask'][None, :] * data_object['coordinate_mask'][:, None]
+            lddt_mask = data_object['coordinate_mask'][None, :] * data_object['coordinate_mask'][:, None]
+            data_object['lddt_mask'] = (ca_distance < 15.0) & lddt_mask
+            data_object['bond_mask'] = data_object['lddt_mask']
 
         return data_object
 

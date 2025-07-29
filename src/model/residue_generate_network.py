@@ -75,12 +75,12 @@ class ResGenNet(nn.Module):
         template: Optional[torch.Tensor],
     ):
         # scaling noisy structure
-        noisy_structure = noisy_structure / torch.sqrt(self.sigma_data ** 2 + noise_scale ** 2)[..., None, None]
+        a_noisy = noisy_structure / torch.sqrt(self.sigma_data ** 2 + noise_scale ** 2)[..., None, None]
 
         # network part
         s_embed, z_embed = self.seq_embedder(plm_embedding, feature_dict, noise_scale)
 
-        a_embed = self.linear_no_bias_a(noisy_structure)
+        a_embed = self.linear_no_bias_a(a_noisy)
         a_embed += self.linear_no_bias_a1(self.layer_norm_a1(s_embed))
 
         if template is not None:
@@ -124,17 +124,17 @@ class SeqEmbedder(nn.Module):
         self.sigma_data = sigma_data
 
         # initial atom embedding
-        self.initial_atom_enbedding = AtomAttentionEncoder(
-            c_atom=self.s_atom,
-            c_atompair=self.z_atom,
-            c_token=self.s_trunk,
-            has_coords=False,
-        )
+        # self.initial_atom_enbedding = AtomAttentionEncoder(
+        #     c_atom=self.s_atom,
+        #     c_atompair=self.z_atom,
+        #     c_token=self.s_trunk,
+        #     has_coords=False,
+        # )
 
         # language model embedding (single embedding)
-        self.layernorm_s = LayerNorm(s_input + s_trunk)
+        self.layernorm_s = LayerNorm(s_input)
         self.linear_no_bias_s = LinearNoBias(
-            in_features=self.s_input + self.s_trunk,
+            in_features=self.s_input,
             out_features=self.s_trunk,
         )
 
@@ -152,10 +152,8 @@ class SeqEmbedder(nn.Module):
         self.relative_position_encoding = RelativePositionEncoding(c_z=self.z_trunk)
 
         # pair embedding
-        self.layernorm_s2z = LayerNorm(self.s_trunk)
-        self.linear_no_bias_s2z = LinearNoBias(in_features=self.s_trunk, out_features=self.z_trunk // 2)
-        self.layernorm_z = LayerNorm(self.z_trunk * 2)
-        self.linear_no_bias_z = LinearNoBias(in_features=self.z_trunk * 2, out_features=self.z_trunk)
+        self.layernorm_z = LayerNorm(self.z_trunk)
+        self.linear_no_bias_z = LinearNoBias(in_features=self.z_trunk, out_features=self.z_trunk)
 
         self.transition_z1 = Transition(c_in=self.z_trunk, n=2)
         self.transition_z2 = Transition(c_in=self.z_trunk, n=2)
@@ -168,30 +166,20 @@ class SeqEmbedder(nn.Module):
     ):
         B, L, _ = plm_embedding.shape
 
-        # process single representation
-        s_init, _, _, _ = self.initial_atom_enbedding(input_feature_dict=feature_dict)
-        s_init = torch.cat([plm_embedding, s_init], dim=-1)
-        s_init = self.linear_no_bias_s(self.layernorm_s(s_init))
-
-        # process pair representation
-        z_init = self.linear_no_bias_s2z(self.layernorm_s2z(s_init))
-        z_init = torch.cat(
-            [torch.tile(z_init[:, :, None, :], (1, 1, L, 1)),
-             torch.tile(z_init[:, None, :, :], (1, L, 1, 1))],
-            dim=-1).float()
-        z_init = z_init + self.relative_position_encoding(feature_dict)
-
-        z_trunk = self.transition_z1(z_init)
-        z_trunk = self.transition_z2(z_trunk)
-
         # process noise scale
-        noise_n = self.fourier_embedding(t_hat_noise_level=torch.log(input=noise_scale / self.sigma_data) / 4).to(s_init.dtype)
-        s_init = s_init.unsqueeze(dim=-3) + self.linear_no_bias_n(
-            self.layernorm_n(noise_n)
-        ).unsqueeze(dim=-2)  # [..., N_sample, N_tokens, c_s]
+        noise_n = self.fourier_embedding(t_hat_noise_level=torch.log(input=noise_scale / self.sigma_data) / 4).to(plm_embedding.dtype)
+        noise_n = self.linear_no_bias_n(self.layernorm_n(noise_n)).unsqueeze(-2)
+
+        s_init = self.linear_no_bias_s(self.layernorm_s(plm_embedding)).unsqueeze(-3)
+        s_init = s_init + noise_n
 
         s_trunk = self.transition_s1(s_init)
         s_trunk = self.transition_s2(s_trunk)
+
+        z_init = self.relative_position_encoding(feature_dict)
+        z_init = self.linear_no_bias_z(self.layernorm_z(z_init))
+        z_trunk = self.transition_z1(z_init)
+        z_trunk = self.transition_z2(z_trunk)
 
         return s_trunk, z_trunk.unsqueeze(-4).expand(-1, s_trunk.shape[1], -1, -1, -1)
 

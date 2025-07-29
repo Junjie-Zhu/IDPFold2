@@ -14,7 +14,7 @@ resume:
   load_model_only: True
 
 data:
-  path_to_dataset: "./data/metadata.test.csv"  # better absolute path, to revise
+  path_to_dataset: "./data/metadata.csv"  # better absolute path, to revise
   truncate_size: 256
   recenter_atoms: True
   eps: 1e-8
@@ -39,21 +39,22 @@ model:
   n_attn_heads: 8
 
 optimizer:
-  lr: 0.0005
+  lr: 0.0001
   weight_decay: 0.
   beta1: 0.9
   beta2: 0.999
   use_adamw: False
   lr_scheduler: "af3"
   warmup_steps: 4000
-  decay_every_n_steps: 80000
+  decay_every_n_steps: 50000
   decay_factor: 0.95
 
 loss:
   weight_mse: 0.33
   eps: 1e-8
   reduction: "mean"
-  lddt_enabled: False
+  mse_enabled: True
+  lddt_enabled: True
   bond_enabled: True
   clip_grad_value: 0
 

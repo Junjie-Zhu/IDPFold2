@@ -532,6 +532,9 @@ class AllLosses(nn.Module):
                  weight_mse: float = 1 / 3,
                  eps=1e-6,
                  sigma_data=16.,
+                 mse_enabled: bool = True,
+                 lddt_enabled: bool = True,
+                 bond_enabled: bool = False,
     ):
         super(AllLosses, self).__init__()
 
@@ -539,6 +542,10 @@ class AllLosses(nn.Module):
         self.bond_loss = BondLoss(eps=eps)
         self.smooth_lddt_loss = SmoothLDDTLoss(eps=eps)
         self.sigma_data = sigma_data
+
+        self.mse_enabled = mse_enabled
+        self.lddt_enabled = lddt_enabled
+        self.bond_enabled = bond_enabled
 
     def calculate_losses(
             self,
@@ -554,15 +561,20 @@ class AllLosses(nn.Module):
         label_distance = torch.cdist(label_dict["coordinate"], label_dict["coordinate"])
 
         loss_fns = {}
-        loss_fns.update(
-            {
+
+        if self.lddt_enabled:
+            loss_fns.update({
                 "smooth_lddt_loss": lambda: (
                     self.smooth_lddt_loss(
                         pred_distance=pred_distance,
                         true_distance=label_distance,
                         lddt_mask=label_dict["lddt_mask"],
                     )
-                ),
+                )
+            })
+
+        if self.bond_enabled:
+            loss_fns.update({
                 "bond_loss": lambda: (
                     self.bond_loss(
                         pred_distance=pred_distance,
@@ -571,17 +583,21 @@ class AllLosses(nn.Module):
                         bond_mask=label_dict["bond_mask"],
                         per_sample_scale=diffusion_per_sample_scale,
                     )
-                ),
+                )
+            })
+
+        if self.mse_enabled:
+            loss_fns.update({
                 "mse_loss": lambda: self.mse_loss(
                     pred_coordinate=pred_dict["coordinate"],
                     true_coordinate=label_dict["coordinate"],
                     coordinate_mask=label_dict["coordinate_mask"],
                     per_sample_scale=diffusion_per_sample_scale,
-                ),
-            }
-        )
+                )
+            })
 
         cum_loss = 0
+        loss_dict = {}
         for loss_name, loss_fn in loss_fns.items():
             loss_outputs = loss_fn()
             if isinstance(loss_outputs, tuple):
@@ -590,7 +606,8 @@ class AllLosses(nn.Module):
                 assert isinstance(loss_outputs, torch.Tensor)
                 loss, metrics = loss_outputs, {}
             cum_loss += loss
-        return cum_loss
+            loss_dict[loss_name] = loss
+        return cum_loss, loss_dict
 
     def forward(self, feat_dict, pred_dict, label_dict):
         return self.calculate_losses(feat_dict, pred_dict, label_dict)

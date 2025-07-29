@@ -68,6 +68,7 @@ if __name__ == '__main__':
 
     data = parse_fasta(args.input_file)
     data.sort(key=lambda x: len(x[1]), reverse=True)
+    data = [seq for seq in data if len(seq[1]) <= 1500]
 
     os.makedirs(args.output_dir, exist_ok=True)
     calculate_representation(model, alphabet, data, device, args.output_dir, BATCH_SIZE=args.batch_size)

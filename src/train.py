@@ -151,6 +151,9 @@ def main(args: DictConfig):
         weight_mse=args.loss.weight_mse,
         eps=args.loss.eps,
         sigma_data=args.sigma_data,
+        mse_enabled=args.loss.mse_enabled,
+        lddt_enabled=args.loss.lddt_enabled,
+        bond_enabled=args.loss.bond_enabled,
     )
 
     # get model summary
@@ -192,7 +195,7 @@ def main(args: DictConfig):
                 'coordinate': x_denoised,
                 'noise_level': x_noise_level,
             }
-            loss = loss_fn(check_batch, pred_dict, label_dict)
+            loss, loss_dict = loss_fn(check_batch, pred_dict, label_dict)
 
             if check_iter >= 2:
                 break
@@ -200,7 +203,8 @@ def main(args: DictConfig):
 
     if DIST_WRAPPER.rank == 0:
         with open(f"{logging_dir}/loss.csv", "w") as f:
-            f.write("Epoch,Loss,Val Loss,mse,lddt,bond\n")
+            loss_items = loss_dict.keys()
+            f.write(f"Epoch,Loss,Val Loss,{','.join(loss_items)}\n")
 
     epoch_progress = tqdm(
         total=args.epochs,
@@ -211,6 +215,8 @@ def main(args: DictConfig):
     # Main train/eval loop
     for crt_epoch in range(start_epoch, args.epochs + 1):
         epoch_loss, epoch_val_loss = 0, 0
+        loss_item_dict = {k: 0 for k in loss_dict.keys()}
+        val_loss_item_dict = {k: 0 for k in loss_dict.keys()}
         model.train()
 
         # Training loop with dynamic progress bar
@@ -252,7 +258,7 @@ def main(args: DictConfig):
                 'coordinate': x_denoised,
                 'noise_level': x_noise_level,
             }
-            loss = loss_fn(input_feature_dict, pred_dict, label_dict)
+            loss, loss_dict = loss_fn(input_feature_dict, pred_dict, label_dict)
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -263,13 +269,17 @@ def main(args: DictConfig):
 
             step_loss = loss.item()
             epoch_loss += step_loss
+            for k, v in loss_dict.items():
+                loss_item_dict[k] += v.item()
 
             # Update the progress bar dynamically
             if DIST_WRAPPER.rank == 0:
-                train_iter.set_postfix(step_loss=f"{step_loss:.3f}")
+                train_iter.set_postfix(step_loss=f"{step_loss:.3f}", **{k: f"{v:.3f}" for k, v in loss_dict.items()})
 
         # Calculate average epoch loss
         epoch_loss /= (crt_step + 1)
+        for k in loss_item_dict.keys():
+            loss_item_dict[k] /= (crt_step + 1)
 
         # Validation loop with dynamic progress bar
         model.eval()
@@ -312,17 +322,21 @@ def main(args: DictConfig):
                     'coordinate': x_denoised,
                     'noise_level': x_noise_level,
                 }
-                val_loss = loss_fn(val_feature_dict, pred_dict, label_dict)
+                val_loss, val_loss_dict = loss_fn(val_feature_dict, pred_dict, label_dict)
 
                 step_val_loss = val_loss.item()
                 epoch_val_loss += step_val_loss
+                for k, v in val_loss_dict.items():
+                    val_loss_item_dict[k] += v.item()
 
                 # Update the validation progress bar dynamically
                 if DIST_WRAPPER.rank == 0:
-                    val_iter.set_postfix(val_loss=f"{step_val_loss:.3f}")
+                    val_iter.set_postfix(val_loss=f"{step_val_loss:.3f}", **{k: f"{v:.3f}" for k, v in val_loss_dict.items()})
 
         # Calculate average validation loss
         epoch_val_loss /= (crt_val_step + 1)
+        for k in val_loss_item_dict.keys():
+            val_loss_item_dict[k] /= (crt_val_step + 1)
 
         if DIST_WRAPPER.rank == 0 and epoch_progress is not None:
             epoch_progress.set_postfix(loss=f"{epoch_loss:.3f}", val_loss=f"{epoch_val_loss:.3f}")
@@ -330,7 +344,7 @@ def main(args: DictConfig):
 
             # Append loss data to file
             with open(f"{logging_dir}/loss.csv", "a") as f:
-                f.write(f"{crt_epoch},{epoch_loss},{epoch_val_loss}\n")
+                f.write(f"{crt_epoch},{epoch_loss},{epoch_val_loss},{','.join(f'{k}:{v:.3f}' for k, v in loss_item_dict.items())}\n")
 
             # Save checkpoint only on master process
             if crt_epoch % args.checkpoint_interval == 0 or crt_epoch == args.epochs:
