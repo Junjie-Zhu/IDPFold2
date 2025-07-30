@@ -11,6 +11,8 @@ import torch
 import torch.nn as nn
 import torch.utils.checkpoint
 
+from src.metrics.rmsd import align_pred_to_true
+
 BLOCK_ARG = Any
 BLOCK_ARGS = List[BLOCK_ARG]
 
@@ -93,7 +95,8 @@ def centre_random_augmentation(
     centre_only: bool = False,
     mask: torch.Tensor = None,
     eps: float = 1e-12,
-) -> torch.Tensor:
+    ref_coords: Optional[torch.Tensor] = None,
+):
     """Implements Algorithm 19 in AF3
 
     Args:
@@ -149,6 +152,17 @@ def centre_random_augmentation(
         )
         + trans_random[..., None, :]
     )  # [..., N_sample, N_atom, 3]
+
+    if ref_coords is not None:
+        # align ref_coords to x_augment_coords
+        ref_coords = expand_at_dim(ref_coords, dim=-3, n=N_sample)
+        ref_coords, _, _ = align_pred_to_true(
+            pred_pose=ref_coords,
+            true_pose=x_augment_coords,
+            atom_mask=None,
+        )
+        return x_augment_coords, ref_coords
+
     return x_augment_coords
 
 

@@ -1,0 +1,41 @@
+# configurations for training
+
+batch_size: 1  # batch size on single device
+n_samples_per_batch: 5
+n_samples: 200
+epochs: 200
+sigma_data: 16.0  # noise level for data augmentation
+checkpoint_interval: 10  # save checkpoint every n epochs
+seed: 42
+deterministic: False
+logging_dir: "./logs"  # better absolute path, to revise
+ckpt_dir: null
+
+data:
+  path_to_dataset: "./data/metadata.test.csv"  # better absolute path, to revise
+  recenter_atoms: True
+  eps: 1e-8
+  shuffle: False
+  num_workers: 16
+  pin_memory: False
+
+model:
+  s_input: 1280
+  s_trunk: 384
+  z_trunk: 128
+  s_atom: 128
+  z_atom: 16
+  s_noise: 256
+  z_template: 128
+  n_layers: 12
+  n_attn_heads: 8
+
+noise:
+  s_max: 160.0
+  s_min: 4e-4
+  rho: 7
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null

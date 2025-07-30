@@ -259,3 +259,53 @@ def weighted_rigid_align(
             allowing_reflection=False,
         )
         return x_aligned
+
+
+def align_local_frames(
+        pred_pose: torch.Tensor,  # (N_res, N_atoms, 3)
+        ref_pose: torch.Tensor,  # (N_res, N_ref, 3) - local CG beads (CCD)
+        true_pose: torch.Tensor,  # (N_res, N_ref, 3) - target CG beads
+        mask: Optional[torch.Tensor] = None,  # (N_res, N_ref)
+        allowing_reflection: bool = False,
+):
+    """
+    Aligns local fragment `pred_pose` using transformation that aligns `ref_pose` to `true_pose`.
+    Returns the aligned fragment, and transformation (rotation and translation).
+    """
+    N_res = pred_pose.shape[0]
+
+    if mask is None:
+        mask = torch.ones(ref_pose.shape[:2], device=ref_pose.device)  # (N_res, N_ref)
+    weight = mask
+
+    weight_unsq = weight.unsqueeze(-1)  # (N_res, N_ref, 1)
+
+    # Center both ref and true
+    ref_centroid = (ref_pose * weight_unsq).sum(dim=1, keepdim=True) / weight_unsq.sum(dim=1, keepdim=True)
+    true_centroid = (true_pose * weight_unsq).sum(dim=1, keepdim=True) / weight_unsq.sum(dim=1, keepdim=True)
+
+    ref_centered = ref_pose - ref_centroid
+    true_centered = true_pose - true_centroid
+
+    # Weighted covariance matrix H
+    H = torch.matmul((ref_centered * weight_unsq).transpose(1, 2), true_centered)  # (N_res, 3, 3)
+
+    # SVD
+    U, S, V = torch.linalg.svd(H)
+    U_t = U.transpose(-2, -1)
+
+    # Fix reflection if needed
+    if not allowing_reflection:
+        det = torch.linalg.det(torch.matmul(V, U_t)).unsqueeze(-1).unsqueeze(-1)  # (N_res, 1, 1)
+        eye = torch.eye(3, device=ref_pose.device).unsqueeze(0).repeat(N_res, 1, 1)  # (N_res, 3, 3)
+        eye[:, 2, 2] = det.squeeze(-1).squeeze(-1)
+        R = torch.matmul(V, torch.matmul(eye, U_t))
+    else:
+        R = torch.matmul(V, U_t)
+
+    # Apply rotation and translation to pred_pose
+    pred_centered = pred_pose - ref_centroid  # broadcast (N_res, N_atoms, 3)
+    pred_rotated = torch.matmul(pred_centered, R.transpose(-2, -1))  # (N_res, N_atoms, 3)
+    pred_aligned = pred_rotated + true_centroid
+
+    return pred_aligned, R, true_centroid - torch.matmul(ref_centroid, R.transpose(-2, -1))

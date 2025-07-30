@@ -1,49 +1,64 @@
-# @package _global_
+# configurations for training
 
-# specify here default configuration
-# order of defaults determines the order in which configs override each other
-defaults:
-  - _self_
-  - data: protein
-  - model: diffusion
-  - callbacks: default
-  - logger: csv # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
-  - trainer: default
-  - paths: env
-  - extras: default
-  - hydra: default
+batch_size: 4  # batch size on single device
+n_samples: 1
+epochs: 200
+sigma_data: 16.0  # noise level for data augmentation
+checkpoint_interval: 10  # save checkpoint every n epochs
+seed: 42
+deterministic: False
+logging_dir: "./logs"  # better absolute path, to revise
 
-  # experiment configs allow for version control of specific hyperparameters
-  # e.g. best hyperparameters for given model and datamodule
-  - experiment: null
+resume:
+  ckpt_dir: null
+  load_model_only: True
 
-  # config for hyperparameter optimization
-  - hparams_search: null
+data:
+  path_to_dataset: "./data/metadata.csv"  # better absolute path, to revise
+  truncate_size: 256
+  recenter_atoms: True
+  eps: 1e-8
+  prop_train: 0.95
+  shuffle: False
+  num_workers: 16
+  pin_memory: False
 
-  # optional local config for machine/user specific settings
-  # it's optional since it doesn't need to exist and is excluded from version control
-  - optional local: default
+noise:
+  p_mean: -1.2
+  p_std: 1.5
 
-  # debugging config (enable through command line, e.g. `python train.py debug=default)
-  - debug: null
+model:
+  s_input: 1280
+  s_trunk: 384
+  z_trunk: 128
+  s_atom: 128
+  z_atom: 16
+  s_noise: 256
+  z_template: 128
+  n_layers: 12
+  n_attn_heads: 8
 
-# task name, determines output directory path
-task_name: "train"
+optimizer:
+  lr: 0.0001
+  weight_decay: 0.
+  beta1: 0.9
+  beta2: 0.999
+  use_adamw: False
+  lr_scheduler: "af3"
+  warmup_steps: 4000
+  decay_every_n_steps: 50000
+  decay_factor: 0.95
 
-# tags to help you identify your experiments
-# you can overwrite this in experiment configs
-# overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
-tags: ["dev"]
+loss:
+  weight_mse: 0.33
+  eps: 1e-8
+  reduction: "mean"
+  mse_enabled: True
+  lddt_enabled: True
+  bond_enabled: True
+  clip_grad_value: 0
 
-# set False to skip model training
-train: true
-
-# evaluate on test set, using best model weights achieved during training
-# lightning chooses best weights based on the metric specified in checkpoint callback
-test: false
-
-# simply provide checkpoint path to resume training
-ckpt_path: null
-
-# seed for random number generators in pytorch, numpy and python.random
-seed: null
+hydra:
+  run:
+    dir: .
+  output_subdir: null
