@@ -118,7 +118,7 @@ class BioFeatureTransform:
         if training:
             ca_distance = (data_object['ca_positions'][:, None, :] - data_object['ca_positions'][None, :, :]).norm(dim=-1)
             lddt_mask = data_object['coordinate_mask'][None, :] * data_object['coordinate_mask'][:, None]
-            data_object['lddt_mask'] = (ca_distance < 15.0) & lddt_mask
+            data_object['lddt_mask'] = (ca_distance < 15.0).float() * lddt_mask
             data_object['bond_mask'] = data_object['lddt_mask']
 
         return data_object

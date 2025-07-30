@@ -562,9 +562,19 @@ class AllLosses(nn.Module):
 
         loss_fns = {}
 
+        if self.mse_enabled:
+            loss_fns.update({
+                "mse": lambda: self.mse_loss(
+                    pred_coordinate=pred_dict["coordinate"],
+                    true_coordinate=label_dict["coordinate"],
+                    coordinate_mask=label_dict["coordinate_mask"],
+                    per_sample_scale=diffusion_per_sample_scale,
+                )
+            })
+
         if self.lddt_enabled:
             loss_fns.update({
-                "smooth_lddt_loss": lambda: (
+                "lddt": lambda: (
                     self.smooth_lddt_loss(
                         pred_distance=pred_distance,
                         true_distance=label_distance,
@@ -575,7 +585,7 @@ class AllLosses(nn.Module):
 
         if self.bond_enabled:
             loss_fns.update({
-                "bond_loss": lambda: (
+                "bond": lambda: (
                     self.bond_loss(
                         pred_distance=pred_distance,
                         true_distance=label_distance,
@@ -583,16 +593,6 @@ class AllLosses(nn.Module):
                         bond_mask=label_dict["bond_mask"],
                         per_sample_scale=diffusion_per_sample_scale,
                     )
-                )
-            })
-
-        if self.mse_enabled:
-            loss_fns.update({
-                "mse_loss": lambda: self.mse_loss(
-                    pred_coordinate=pred_dict["coordinate"],
-                    true_coordinate=label_dict["coordinate"],
-                    coordinate_mask=label_dict["coordinate_mask"],
-                    per_sample_scale=diffusion_per_sample_scale,
                 )
             })
 

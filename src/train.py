@@ -200,10 +200,16 @@ def main(args: DictConfig):
             if check_iter >= 2:
                 break
     logging.info(f"Sanity check done")
+    loss_items = []
+    if args.loss.mse_enabled:
+        loss_items.append("mse")
+    if args.loss.lddt_enabled:
+        loss_items.append("lddt")
+    if args.loss.bond_enabled:
+        loss_items.append("bond")
 
     if DIST_WRAPPER.rank == 0:
         with open(f"{logging_dir}/loss.csv", "w") as f:
-            loss_items = loss_dict.keys()
             f.write(f"Epoch,Loss,Val Loss,{','.join(loss_items)}\n")
 
     epoch_progress = tqdm(
@@ -215,8 +221,8 @@ def main(args: DictConfig):
     # Main train/eval loop
     for crt_epoch in range(start_epoch, args.epochs + 1):
         epoch_loss, epoch_val_loss = 0, 0
-        loss_item_dict = {k: 0 for k in loss_dict.keys()}
-        val_loss_item_dict = {k: 0 for k in loss_dict.keys()}
+        loss_item_dict = {k: 0 for k in loss_items}
+        val_loss_item_dict = {k: 0 for k in loss_items}
         model.train()
 
         # Training loop with dynamic progress bar
@@ -230,6 +236,7 @@ def main(args: DictConfig):
                 position=1,
                 ncols=100,
             )
+        crt_step, crt_val_step = 0, 0
         for crt_step, input_feature_dict in train_iter:
             torch.cuda.empty_cache()
             input_feature_dict = to_device(input_feature_dict, device)
