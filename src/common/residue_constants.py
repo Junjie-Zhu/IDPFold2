@@ -444,3 +444,55 @@ WEIGHT_MAPPING = {
 ATOM_WEIGHT_MAPPING = {
     k: [WEIGHT_MAPPING[atom[0]] for atom in v.keys()] for k, v in RES_ATOMS_DICT.items()
 }
+
+restypes = [
+    "A",
+    "R",
+    "N",
+    "D",
+    "C",
+    "Q",
+    "E",
+    "G",
+    "H",
+    "I",
+    "L",
+    "K",
+    "M",
+    "F",
+    "P",
+    "S",
+    "T",
+    "W",
+    "Y",
+    "V",
+]
+
+restype_1to3 = {
+    "A": "ALA",
+    "R": "ARG",
+    "N": "ASN",
+    "D": "ASP",
+    "C": "CYS",
+    "Q": "GLN",
+    "E": "GLU",
+    "G": "GLY",
+    "H": "HIS",
+    "I": "ILE",
+    "L": "LEU",
+    "K": "LYS",
+    "M": "MET",
+    "F": "PHE",
+    "P": "PRO",
+    "S": "SER",
+    "T": "THR",
+    "W": "TRP",
+    "Y": "TYR",
+    "V": "VAL",
+}
+
+restype_3to1 = {v: k for k, v in restype_1to3.items()}
+unk_restype = "UNK"
+
+resnames = [restype_1to3[r] for r in restypes] + [unk_restype]
+resname_to_idx = {resname: i for i, resname in enumerate(resnames)}

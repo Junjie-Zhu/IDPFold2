@@ -13,15 +13,16 @@ from tqdm import tqdm
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from src.data.dataset import BioTrainingDataset
-from src.data.dataloader import get_training_dataloader
-from src.data.transform import BioFeatureTransform
+from src.data.dataset import PDBDataModule, PDBDataSelector, PDBDataSplitter
+from src.data.transforms import GlobalRotationTransform, ChainBreakPerResidueTransform
 from src.model.integral import training_predict
 from src.model.protein_transformer import ProteinTransformerAF3
 from src.model.flow_matching.r3flow import R3NFlowMatcher
 from src.model.components.motif_factory import SingleMotifFactory
 from src.model.optimizer import get_optimizer, get_lr_scheduler
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
+
+from mdgen.train import val_loader
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -75,24 +76,43 @@ def main(args: DictConfig):
     )
 
     # instantiate dataset
-    dataset = BioTrainingDataset(
-        path_to_dataset=args.data.path_to_dataset,
-        transform=BioFeatureTransform(
-            truncate_size=args.data.truncate_size,
-            recenter_atoms=args.data.recenter_atoms,
-            eps=args.data.eps,
+    data_module = PDBDataModule(
+        data_dir=args.data.data_dir,
+        dataselector=PDBDataSelector(
+            data_dir=args.data.data_dir,
+            fraction=args.data.fraction,
+            molecule_type=args.data.molecule_type,
+            experiment_types=args.data.experiment_types,
+            min_length=args.data.min_length,
+            max_length=args.data.max_length,
+            oligomeric_min=args.data.oligomeric_min,
+            oligomeric_max=args.data.oligomeric_max,
+            best_resolution=args.data.best_resolution,
+            worst_resolution= args.data.worst_resolution,
+            has_ligands=[],
+            remove_ligands=[],
+            remove_non_standard_residues=True,
+            remove_pdb_unavailable=True,
+            exclude_ids=[]
         ),
-    )
-    train_loader, val_loader = get_training_dataloader(
-        dataset=dataset,
+        datasplitter=PDBDataSplitter(
+            data_dir=args.data.data_dir,
+            train_val_test=args.data.train_val_test,
+            split_type=args.data.split_type,
+            split_sequence_similarity=args.data.split_sequence_similarity,
+            overwrite_sequence_clusters=False
+        ),
+        in_memory=args.data.in_memory,
+        format=args.data.format,
+        overwrite=args.data.overwrite,
+        batch_padding=args.data.batch_padding,
+        sampling_mode=args.data.sampling_mode,
+        transforms=[GlobalRotationTransform(), ChainBreakPerResidueTransform()],
         batch_size=args.batch_size,
-        prop_train=args.data.prop_train,
-        shuffle=args.data.shuffle,
-        distributed=DIST_WRAPPER.world_size > 1,
         num_workers=args.data.num_workers,
         pin_memory=args.data.pin_memory,
-        seed=args.seed,
     )
+    train_loader, val_loader = data_module.get_train_dataloader()
 
     # instantiate model
     model = ProteinTransformerAF3(**args.model).to(device)
@@ -159,6 +179,7 @@ def main(args: DictConfig):
                 model=model,
                 motif_factory=motif_factory,
                 noise_kwargs=noise_kwargs,
+                target_pred=args.target_pred,
                 motif_conditioning=args.motif_conditioning,
                 self_conditioning=args.self_conditioning,
             )
@@ -204,6 +225,7 @@ def main(args: DictConfig):
                 model=model,
                 motif_factory=motif_factory,
                 noise_kwargs=noise_kwargs,
+                target_pred=args.target_pred,
                 motif_conditioning=args.motif_conditioning,
                 self_conditioning=args.self_conditioning,
             )
@@ -249,6 +271,7 @@ def main(args: DictConfig):
                     model=model,
                     motif_factory=motif_factory,
                     noise_kwargs=noise_kwargs,
+                    target_pred=args.target_pred,
                     motif_conditioning=args.motif_conditioning,
                     self_conditioning=args.self_conditioning,
                 )

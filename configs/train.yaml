@@ -25,8 +25,9 @@ data:
   pin_memory: False
 
 noise:
-  p_mean: -1.2
-  p_std: 1.5
+  mode: mix_up02_beta
+  p1: 1.9
+  p2: 1.0
 
 model:
   token_dim: 512  # dimension of the tokens in the sequence
@@ -95,14 +96,10 @@ optimizer:
   decay_every_n_steps: 50000
   decay_factor: 0.95
 
-loss:
-  weight_mse: 0.33
-  eps: 1e-8
-  reduction: "mean"
-  mse_enabled: True
-  lddt_enabled: True
-  bond_enabled: True
-  clip_grad_value: 0
+defaults:
+  - _self_
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
 
 hydra:
   run:

@@ -196,6 +196,7 @@ def training_predict(
     model: nn.Module,
     motif_factory: Optional[nn.Module],
     noise_kwargs: dict,
+    target_pred: str = 'x_1',
     motif_conditioning=False,
     self_conditioning=False
 ):
@@ -227,12 +228,12 @@ def training_predict(
 
     # self-conditioning
     if self_conditioning and random.random() < 0.5:
-        x_sc = prediction_to_x_clean(model(batch), batch)
+        x_sc = prediction_to_x_clean(model(batch), batch, target_pred=target_pred)
         batch['x_sc'] = x_sc
 
     # model prediction
     nn_out = model(batch)
-    x_pred = prediction_to_x_clean(nn_out, batch)
+    x_pred = prediction_to_x_clean(nn_out, batch, target_pred=target_pred)
 
     # loss
     fm_loss = compute_fm_loss(x_1, x_pred, t, mask)

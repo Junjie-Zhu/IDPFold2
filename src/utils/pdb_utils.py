@@ -6,7 +6,7 @@ from typing import Any
 import torch
 import biotite.structure.io.pdbx as pdbx
 
-import src.utils.residue_constants as rc
+import src.common.residue_constants as rc
 
 ALPHANUMERIC = string.ascii_letters + string.digits + ' '
 CHAIN_TO_INT = {
