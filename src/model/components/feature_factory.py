@@ -345,6 +345,26 @@ class XscPairwiseDistancesPairFeat(Feature):
             return torch.zeros(b, n, n, self.dim, device=x.device)
 
 
+class PLMSeqFeat(Feature):
+    """Computes PLM sequence feature, shape [b, n, plm_dim]."""
+
+    def __init__(self, plm_in_dim, plm_out_dim):
+        super().__init__(dim=plm_out_dim)
+
+        self.layernorm = torch.nn.LayerNorm(plm_in_dim)
+        self.linear = torch.nn.Linear(plm_in_dim, plm_out_dim)
+        self.relu = torch.nn.ReLU()
+
+    def forward(self, batch):
+        if "plm_embedding" in batch:
+            plm_embedding = batch["plm_embedding"]
+            return self.relu(self.linear(self.layernorm(plm_embedding)))  # [b, n, plm_dim]
+        else:
+            xt = batch["x_t"]  # [b, n, 3]
+            b, n = xt.shape[0], xt.shape[1]
+            return torch.zeros(b, n, self.dim, device=xt.device)
+
+
 ####################################
 # # Class that produces features # #
 ####################################
@@ -408,6 +428,8 @@ class FeatureFactory(torch.nn.Module):
                 return MotifX1SeqFeat(**kwargs)
             elif f == "motif_sequence_mask":
                 return MotifMaskSeqFeat(**kwargs)
+            elif f == "plm_emb":
+                return PLMSeqFeat(**kwargs)
             else:
                 raise IOError(f"Sequence feature {f} not implemented.")
 

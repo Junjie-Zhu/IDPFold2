@@ -13,7 +13,6 @@ import math
 from typing import Callable, List, Literal, Optional, Tuple
 
 import torch
-from jaxtyping import Bool, Float
 from torch import Dict, Tensor
 from tqdm import tqdm
 
@@ -38,7 +37,7 @@ class R3NFlowMatcher:
         self.zero_com = zero_com
 
     def _force_zero_com(
-            self, x: Float[Tensor, "* n 3"], mask: Optional[Bool[Tensor, "* n"]] = None
+            self, x: Tensor, mask: Optional[Tensor] = None
     ) -> Dict[str, Tensor]:
         """
         Centers tensor over n dimension.
@@ -57,7 +56,7 @@ class R3NFlowMatcher:
         return x
 
     def _apply_mask(
-            self, x: Float[Tensor, "* n 3"], mask: Optional[Bool[Tensor, "* n"]] = None
+            self, x: Tensor, mask: Optional[Tensor] = None
     ) -> Dict[str, Tensor]:
         """
         Applies mask to x. Sets masked elements to zero.
@@ -74,7 +73,7 @@ class R3NFlowMatcher:
         return x * mask[..., None]  # [*, n, 3]
 
     def _mask_and_zero_com(
-            self, x, mask: Optional[Bool[Tensor, "* n"]] = None
+            self, x, mask: Optional[Tensor] = None
     ) -> Dict[str, Tensor]:
         """
         Applies mask to and centers x if needed (if zero_com=True).
@@ -91,7 +90,7 @@ class R3NFlowMatcher:
             x = self._force_zero_com(x, mask)
         return x
 
-    def _extend_t(self, n: int, t: Float[Tensor, "*"]) -> Float[Tensor, "* n"]:
+    def _extend_t(self, n: int, t: Tensor) -> Tensor:
         """
         Extends t shape with n. Needed to use flow matching utils.
 
@@ -106,10 +105,10 @@ class R3NFlowMatcher:
 
     def interpolate(
             self,
-            x_0: Float[Tensor, "* n 3"],
-            x_1: Float[Tensor, "* n 3"],
-            t: Float[Tensor, "*"],
-            mask: Optional[Bool[Tensor, "* n"]] = None,
+            x_0: Tensor,
+            x_1: Tensor,
+            t: Tensor,
+            mask: Optional[Tensor] = None,
     ) -> Dict[str, Tensor]:
         """
         Interpolates between rigids x_0 (base) and x_1 (data) using t.
@@ -136,8 +135,8 @@ class R3NFlowMatcher:
         return trans_t  # Masking nor centering necessary since x_0 and x_1 are
 
     def log_snr(
-            self, t: Float[Tensor, "*"], eps: float = 1e-3
-    ) -> Tuple[Float[Tensor, "*"], Float[Tensor, "*"]]:
+            self, t: Tensor, eps: float = 1e-3
+    ) -> Tuple[Tensor, Tensor]:
         """
         Returns log-SNR, and time derivative, of interpolation scheme.
         With our interpolation, given by
@@ -163,10 +162,10 @@ class R3NFlowMatcher:
 
     def xt_dot(
             self,
-            x_1: Float[Tensor, "* n 3"],
-            x_t: Float[Tensor, "* n 3"],
-            t: Float[Tensor, "*"],
-            mask: Optional[Bool[Tensor, "* n"]] = None,
+            x_1: Tensor,
+            x_t: Tensor,
+            t: Tensor,
+            mask: Optional[Tensor] = None,
     ) -> Dict[str, Tensor]:
         """
         Computes \dot{x_t} for the interpolation scheme defined
@@ -196,16 +195,16 @@ class R3NFlowMatcher:
 
     def simulation_step(
             self,
-            x_t: Float[Tensor, "* n 3"],
-            v: Float[Tensor, "* n 3"],
-            t: Float[Tensor, "*"],
+            x_t: Tensor,
+            v: Tensor,
+            t: Tensor,
             dt: float,
             gt: float,
             sampling_mode: Literal["vf", "sc"],
             sc_scale_noise: float,
             sc_scale_score: float,
-            mask: Optional[Bool[Tensor, "* n"]] = None,
-    ) -> Tuple[Float[Tensor, "* n 3"], Float[Tensor, "*"]]:
+            mask: Optional[Tensor] = None,
+    ) -> Tuple[Tensor, Tensor]:
         """
         Single integration step of ODE \dot{x_t} = v(x_t, t) using Euler integration scheme.
 
@@ -251,15 +250,15 @@ class R3NFlowMatcher:
 
     def step_euler(
             self,
-            x_t: Float[Tensor, "* n 3"],
-            v: Float[Tensor, "* n 3"],
-            t: Float[Tensor, "* n"],
+            x_t: Tensor,
+            v: Tensor,
+            t: Tensor,
             dt: float,
             gt: float,
             sampling_mode: Literal["vf", "sc"],
             sc_scale_noise: float,
             sc_scale_score: float,
-    ) -> tuple[Float[Tensor, "* n 3"], Float[Tensor, "* n"]]:
+    ) -> tuple[Tensor, Tensor]:
         """
         Single integration step of ODE
 
@@ -335,9 +334,9 @@ class R3NFlowMatcher:
 
     def vf_to_score(
             self,
-            x_t: Float[Tensor, "* n 3"],
-            v: Float[Tensor, "* n 3"],
-            t: Float[Tensor, "* n"],
+            x_t: Tensor,
+            v: Tensor,
+            t: Tensor,
     ):
         """
         Compute score of noisy density given the vector field learned by flow matching. With
@@ -369,7 +368,7 @@ class R3NFlowMatcher:
             shape: Tuple = tuple(),
             dtype: Optional[torch.dtype] = None,
             device: Optional[torch.device] = None,
-            mask: Optional[Bool[Tensor, "* n"]] = None,
+            mask: Optional[Tensor] = None,
     ) -> Dict[str, Tensor]:
         """
         Samples reference distribution std Gaussian (possibly centered).
@@ -407,7 +406,7 @@ class R3NFlowMatcher:
             self_cond: bool,
             cath_code: List[List[str]],
             device: torch.device,
-            mask: Bool[Tensor, "* n"],
+            mask: Tensor,
             schedule_mode: Literal[
                 "uniform", "power", "cos_sch_v_snr", "loglinear", "edm", "log"
             ],
@@ -541,12 +540,12 @@ class R3NFlowMatcher:
 
     def get_gt(
             self,
-            t: Float[Tensor, "s"],
+            t: Tensor,
             mode: str,
             param: float,
             clamp_val: Optional[float] = None,
             eps: float = 1e-2,
-    ) -> Float[Tensor, "s"]:
+    ) -> Tensor:
         """
         Computes gt for different modes.
 

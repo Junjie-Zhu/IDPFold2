@@ -16,9 +16,10 @@ from omegaconf import DictConfig, OmegaConf
 from src.data.dataset import BioTrainingDataset
 from src.data.dataloader import get_training_dataloader
 from src.data.transform import BioFeatureTransform
-from src.model.residue_generate_network import ResGenNet
-from src.model.diffusion_sampler import TrainingNoiseSampler, sample_diffusion_training
-from src.model.loss import AllLosses
+from src.model.integral import training_predict
+from src.model.protein_transformer import ProteinTransformerAF3
+from src.model.flow_matching.r3flow import R3NFlowMatcher
+from src.model.components.motif_factory import SingleMotifFactory
 from src.model.optimizer import get_optimizer, get_lr_scheduler
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
 
@@ -47,20 +48,26 @@ def main(args: DictConfig):
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         all_gpu_ids = ",".join(str(x) for x in range(torch.cuda.device_count()))
         devices = os.getenv("CUDA_VISIBLE_DEVICES", all_gpu_ids)
-        logging.info(
-            f"LOCAL_RANK: {DIST_WRAPPER.local_rank} - CUDA_VISIBLE_DEVICES: [{devices}]"
-        )
         torch.cuda.set_device(device)
     else:
         device = torch.device("cpu")
     if DIST_WRAPPER.world_size > 1:
-        logging.info(
-            f"Using DDP with {DIST_WRAPPER.world_size} processes, rank: {DIST_WRAPPER.rank}"
-        )
+        if DIST_WRAPPER.rank == 0:
+            logging.info(
+                f"LOCAL_RANK: {DIST_WRAPPER.local_rank} - CUDA_VISIBLE_DEVICES: [{devices}]"
+            )
+            logging.info(
+                f"Using DDP with {DIST_WRAPPER.world_size} processes, rank: {DIST_WRAPPER.rank}"
+            )
         timeout_seconds = int(os.environ.get("NCCL_TIMEOUT_SECOND", 600))
         dist.init_process_group(
             backend="nccl", timeout=datetime.timedelta(seconds=timeout_seconds)
         )
+    else:
+        logging.info(
+            f"LOCAL_RANK: {DIST_WRAPPER.local_rank} - CUDA_VISIBLE_DEVICES: [{devices}]"
+        )
+
     # All ddp process got the same seed
     seed_everything(
         seed=args.seed,
@@ -88,34 +95,25 @@ def main(args: DictConfig):
     )
 
     # instantiate model
-    model = ResGenNet(
-        s_input=args.model.s_input,
-        s_trunk=args.model.s_trunk,
-        z_trunk=args.model.z_trunk,
-        s_atom=args.model.s_atom,
-        z_atom=args.model.z_atom,
-        s_noise=args.model.s_noise,
-        z_template=args.model.z_template,
-        n_layers=args.model.n_layers,
-        n_attn_heads=args.model.n_attn_heads,
-        sigma_data=args.sigma_data,
-    ).to(device)
-
-    # initialize diffusion sampler
-    noise_sampler = TrainingNoiseSampler(
-        p_mean=args.noise.p_mean,
-        p_std=args.noise.p_std,
-        sigma_data=args.sigma_data,
-    )
-
+    model = ProteinTransformerAF3(**args.model).to(device)
+    flow_matching = R3NFlowMatcher(zero_com=not args.motif_conditioning, scale_ref=1.0)
+    motif_factory = SingleMotifFactory(motif_prob=0 if not args.motif_conditioning else args.motif_prob)
+    nparam = sum(p.numel() for p in model.parameters() if p.requires_grad)
     if DIST_WRAPPER.world_size > 1:
-        logging.info("Using DDP")
+        if DIST_WRAPPER.rank == 0:
+            logging.info(model)
+            logging.info(f"Model has {nparam / 1000000:.2f}M parameters")
+            logging.info("Using DDP")
         model = DDP(
             model,
             device_ids=[DIST_WRAPPER.local_rank],
             output_device=DIST_WRAPPER.local_rank,
             static_graph=True,
         )
+    else:
+        logging.info(model)
+        logging.info(f"Model has {nparam / 1000000:.2f}M parameters")
+
     optimizer = get_optimizer(
         model,
         lr=args.optimizer.lr,
@@ -146,83 +144,41 @@ def main(args: DictConfig):
             start_epoch = checkpoint['epoch'] + 1
         logging.info(f"Loaded checkpoint from {args.resume.ckpt_dir}")
 
-    # instantiate loss
-    loss_fn = AllLosses(
-        weight_mse=args.loss.weight_mse,
-        eps=args.loss.eps,
-        sigma_data=args.sigma_data,
-        mse_enabled=args.loss.mse_enabled,
-        lddt_enabled=args.loss.lddt_enabled,
-        bond_enabled=args.loss.bond_enabled,
-    )
-
-    # get model summary
-    if DIST_WRAPPER.rank == 0:
-        logging.info(model)
-        logging.info(f"Model has {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
-
-    training_sample = args.n_samples
-
     # sanity check
     torch.cuda.empty_cache()
     model.eval()
     with torch.no_grad():
-        for check_iter, check_batch in enumerate(val_loader):
+        for check_iter, check_dict in enumerate(val_loader):
             torch.cuda.empty_cache()
-            check_batch = to_device(check_batch, device)
-            s_inputs = check_batch['plm_embedding']
+            check_dict = to_device(check_dict, device)
 
-            label_dict = {
-                'coordinate': check_batch['ca_positions'],
-                'coordinate_mask': check_batch['coordinate_mask'],
-                'lddt_mask': check_batch['lddt_mask'],
-                'bond_mask': check_batch['bond_mask'],
-            }
-            for k in ['plm_embedding', 'ca_positions', 'coordinate_mask', 'lddt_mask', 'bond_mask']:
-                check_batch.pop(k)
-
-            _, x_denoised, x_noise_level = sample_diffusion_training(
-                noise_sampler=noise_sampler,
-                denoise_net=model,
-                label_dict=label_dict,
-                input_feature_dict=check_batch,
-                s_inputs=s_inputs,
-                N_sample=training_sample,
-                diffusion_chunk_size=None,
+            noise_kwargs = {**args.noise}
+            loss = training_predict(
+                batch=check_dict,
+                flow_matching=flow_matching,
+                model=model,
+                motif_factory=motif_factory,
+                noise_kwargs=noise_kwargs,
+                motif_conditioning=args.motif_conditioning,
+                self_conditioning=args.self_conditioning,
             )
-
-            pred_dict = {
-                'coordinate': x_denoised,
-                'noise_level': x_noise_level,
-            }
-            loss, loss_dict = loss_fn(check_batch, pred_dict, label_dict)
-
             if check_iter >= 2:
                 break
     logging.info(f"Sanity check done")
-    loss_items = []
-    if args.loss.mse_enabled:
-        loss_items.append("mse")
-    if args.loss.lddt_enabled:
-        loss_items.append("lddt")
-    if args.loss.bond_enabled:
-        loss_items.append("bond")
 
     if DIST_WRAPPER.rank == 0:
         with open(f"{logging_dir}/loss.csv", "w") as f:
-            f.write(f"Epoch,Loss,Val Loss,{','.join(loss_items)}\n")
+            f.write("Epoch,Loss,Val Loss\n")
 
     epoch_progress = tqdm(
         total=args.epochs,
         leave=False,
         position=0,
-        ncols=100,  # Adjust width of the progress bar
+        ncols=100,
     ) if DIST_WRAPPER.rank == 0 else None
     # Main train/eval loop
     for crt_epoch in range(start_epoch, args.epochs + 1):
         epoch_loss, epoch_val_loss = 0, 0
-        loss_item_dict = {k: 0 for k in loss_items}
-        val_loss_item_dict = {k: 0 for k in loss_items}
         model.train()
 
         # Training loop with dynamic progress bar
@@ -237,35 +193,20 @@ def main(args: DictConfig):
                 ncols=100,
             )
         crt_step, crt_val_step = 0, 0
-        for crt_step, input_feature_dict in train_iter:
+        for crt_step, train_dict in train_iter:
             torch.cuda.empty_cache()
-            input_feature_dict = to_device(input_feature_dict, device)
-            s_inputs = input_feature_dict['plm_embedding']
+            train_dict = to_device(train_dict, device)
 
-            label_dict = {
-                'coordinate': input_feature_dict['ca_positions'],
-                'coordinate_mask': input_feature_dict['coordinate_mask'],
-                'lddt_mask': input_feature_dict['lddt_mask'],
-                'bond_mask': input_feature_dict['bond_mask'],
-            }
-            for k in ['plm_embedding', 'ca_positions', 'coordinate_mask', 'lddt_mask', 'bond_mask']:
-                input_feature_dict.pop(k)
-
-            _, x_denoised, x_noise_level = sample_diffusion_training(
-                noise_sampler=noise_sampler,
-                denoise_net=model,
-                label_dict=label_dict,
-                input_feature_dict=input_feature_dict,
-                s_inputs=s_inputs,
-                N_sample=training_sample,
-                diffusion_chunk_size=None,
+            noise_kwargs = {**args.noise}
+            loss = training_predict(
+                batch=train_dict,
+                flow_matching=flow_matching,
+                model=model,
+                motif_factory=motif_factory,
+                noise_kwargs=noise_kwargs,
+                motif_conditioning=args.motif_conditioning,
+                self_conditioning=args.self_conditioning,
             )
-
-            pred_dict = {
-                'coordinate': x_denoised,
-                'noise_level': x_noise_level,
-            }
-            loss, loss_dict = loss_fn(input_feature_dict, pred_dict, label_dict)
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -276,17 +217,13 @@ def main(args: DictConfig):
 
             step_loss = loss.item()
             epoch_loss += step_loss
-            for k, v in loss_dict.items():
-                loss_item_dict[k] += v.item()
 
             # Update the progress bar dynamically
             if DIST_WRAPPER.rank == 0:
-                train_iter.set_postfix(step_loss=f"{step_loss:.3f}", **{k: f"{v:.3f}" for k, v in loss_dict.items()})
+                train_iter.set_postfix(step_loss=f"{step_loss:.3f}")
 
         # Calculate average epoch loss
         epoch_loss /= (crt_step + 1)
-        for k in loss_item_dict.keys():
-            loss_item_dict[k] /= (crt_step + 1)
 
         # Validation loop with dynamic progress bar
         model.eval()
@@ -301,49 +238,30 @@ def main(args: DictConfig):
                     position=1,
                     ncols=100,
                 )
-            for crt_val_step, val_feature_dict in val_iter:
+            for crt_val_step, val_dict in val_iter:
                 torch.cuda.empty_cache()
-                val_feature_dict = to_device(val_feature_dict, device)
-                s_inputs = val_feature_dict['plm_embedding']
+                val_dict = to_device(val_dict, device)
 
-                label_dict = {
-                    'coordinate': val_feature_dict['ca_positions'],
-                    'coordinate_mask': val_feature_dict['coordinate_mask'],
-                    'lddt_mask': val_feature_dict['lddt_mask'],
-                    'bond_mask': val_feature_dict['bond_mask'],
-                }
-                for k in ['plm_embedding', 'ca_positions', 'coordinate_mask', 'lddt_mask', 'bond_mask']:
-                    val_feature_dict.pop(k)
-
-                _, x_denoised, x_noise_level = sample_diffusion_training(
-                    noise_sampler=noise_sampler,
-                    denoise_net=model,
-                    label_dict=label_dict,
-                    input_feature_dict=val_feature_dict,
-                    s_inputs=s_inputs,
-                    N_sample=training_sample,
-                    diffusion_chunk_size=None,
+                noise_kwargs = {**args.noise}
+                val_loss = training_predict(
+                    batch=val_dict,
+                    flow_matching=flow_matching,
+                    model=model,
+                    motif_factory=motif_factory,
+                    noise_kwargs=noise_kwargs,
+                    motif_conditioning=args.motif_conditioning,
+                    self_conditioning=args.self_conditioning,
                 )
-
-                pred_dict = {
-                    'coordinate': x_denoised,
-                    'noise_level': x_noise_level,
-                }
-                val_loss, val_loss_dict = loss_fn(val_feature_dict, pred_dict, label_dict)
 
                 step_val_loss = val_loss.item()
                 epoch_val_loss += step_val_loss
-                for k, v in val_loss_dict.items():
-                    val_loss_item_dict[k] += v.item()
 
                 # Update the validation progress bar dynamically
                 if DIST_WRAPPER.rank == 0:
-                    val_iter.set_postfix(val_loss=f"{step_val_loss:.3f}", **{k: f"{v:.3f}" for k, v in val_loss_dict.items()})
+                    val_iter.set_postfix(val_loss=f"{step_val_loss:.3f}")
 
         # Calculate average validation loss
         epoch_val_loss /= (crt_val_step + 1)
-        for k in val_loss_item_dict.keys():
-            val_loss_item_dict[k] /= (crt_val_step + 1)
 
         if DIST_WRAPPER.rank == 0 and epoch_progress is not None:
             epoch_progress.set_postfix(loss=f"{epoch_loss:.3f}", val_loss=f"{epoch_val_loss:.3f}")
@@ -351,7 +269,7 @@ def main(args: DictConfig):
 
             # Append loss data to file
             with open(f"{logging_dir}/loss.csv", "a") as f:
-                f.write(f"{crt_epoch},{epoch_loss},{epoch_val_loss},{','.join(f'{k}:{v:.3f}' for k, v in loss_item_dict.items())}\n")
+                f.write(f"{crt_epoch},{epoch_loss},{epoch_val_loss}\n")
 
             # Save checkpoint only on master process
             if crt_epoch % args.checkpoint_interval == 0 or crt_epoch == args.epochs:
