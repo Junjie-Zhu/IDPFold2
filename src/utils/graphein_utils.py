@@ -39,14 +39,13 @@ import wget
 from biopandas.mmcif import PandasMmcif
 from biopandas.mmtf import PandasMmtf
 from biopandas.pdb import PandasPdb
-from jaxtyping import Float
 from loguru import logger as log
 from pandas.core.groupby.generic import DataFrameGroupBy
 from torch import Tensor
 from torch_geometric.data import Data
 from tqdm import tqdm
 
-AtomTensor = NewType("AtomTensor", Float[Tensor, "residues 37 3"])
+AtomTensor = NewType("AtomTensor", Tensor)
 
 STANDARD_AMINO_ACIDS: List[str] = [
     "A",

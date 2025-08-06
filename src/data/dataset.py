@@ -454,6 +454,22 @@ class PDBDataModule():
         self.num_workers = num_workers
         self.pin_memory = pin_memory
 
+    def setup(self):
+        if not self.df_data:
+            if self.dataselector:
+                file_identifier = self._get_file_identifier(self.dataselector)
+            else:
+                file_identifier = self.data_dir.name
+
+            df_data_name = f"{file_identifier}.csv"
+            logger.info(f"Loading dataset csv from {df_data_name}")
+            self.df_data = pd.read_csv(self.data_dir / df_data_name)
+
+        # split the dataset into train, val and test and set attributes that are used for dataset creation
+        (self.dfs_splits, self.clusterid_to_seqid_mappings) = (
+            self.datasplitter.split_data(self.df_data, file_identifier)
+        )
+
     def _compose_transforms(self, transforms: Iterable[Callable]) -> T.Compose:
         try:
             return T.Compose(list(transforms.values()))

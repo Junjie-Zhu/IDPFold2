@@ -17,12 +17,11 @@ from src.data.dataset import PDBDataModule, PDBDataSelector, PDBDataSplitter
 from src.data.transforms import GlobalRotationTransform, ChainBreakPerResidueTransform
 from src.model.integral import training_predict
 from src.model.protein_transformer import ProteinTransformerAF3
+from src.model.ema import EMAWrapper
 from src.model.flow_matching.r3flow import R3NFlowMatcher
 from src.model.components.motif_factory import SingleMotifFactory
 from src.model.optimizer import get_optimizer, get_lr_scheduler
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
-
-from mdgen.train import val_loader
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -112,6 +111,8 @@ def main(args: DictConfig):
         num_workers=args.data.num_workers,
         pin_memory=args.data.pin_memory,
     )
+    data_module.prepare_data()
+    data_module.setup()
     train_loader, val_loader = data_module.get_train_dataloader()
 
     # instantiate model
@@ -134,6 +135,16 @@ def main(args: DictConfig):
         logging.info(model)
         logging.info(f"Model has {nparam / 1000000:.2f}M parameters")
 
+    if args.ema.decay > 0:
+        ema_wrapper = EMAWrapper(
+            model=model,
+            decay=args.ema.decay,
+        )
+        ema_wrapper.register()
+    else:
+        ema_wrapper = None
+
+    torch.cuda.empty_cache()
     optimizer = get_optimizer(
         model,
         lr=args.optimizer.lr,
@@ -152,6 +163,14 @@ def main(args: DictConfig):
     )
 
     start_epoch = 1
+    if args.resume.ema_dir is not None and args.ema.decay > 0:
+        ema_checkpoint = torch.load(args.resume.ema_dir, map_location=device)
+        if DIST_WRAPPER.world_size > 1:
+            model.module.load_state_dict(ema_checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(ema_checkpoint['model_state_dict'])
+        ema_wrapper.register()
+
     if args.resume.ckpt_dir is not None:
         checkpoint = torch.load(args.resume.ckpt_dir, map_location=device)
         if DIST_WRAPPER.world_size > 1:
@@ -162,7 +181,6 @@ def main(args: DictConfig):
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             start_epoch = checkpoint['epoch'] + 1
-        logging.info(f"Loaded checkpoint from {args.resume.ckpt_dir}")
 
     # sanity check
     torch.cuda.empty_cache()
