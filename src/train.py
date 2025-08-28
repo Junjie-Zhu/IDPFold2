@@ -236,6 +236,9 @@ def main(args: DictConfig):
             torch.cuda.empty_cache()
             train_dict = to_device(train_dict, device)
 
+            if ema_wrapper is not None:
+                ema_wrapper.update()
+
             noise_kwargs = {**args.noise}
             loss = training_predict(
                 batch=train_dict,
@@ -278,6 +281,10 @@ def main(args: DictConfig):
                     position=1,
                     ncols=100,
                 )
+
+            if ema_wrapper is not None:
+                ema_wrapper.apply_shadow()
+
             for crt_val_step, val_dict in val_iter:
                 torch.cuda.empty_cache()
                 val_dict = to_device(val_dict, device)
@@ -301,6 +308,8 @@ def main(args: DictConfig):
                 if DIST_WRAPPER.rank == 0:
                     val_iter.set_postfix(val_loss=f"{step_val_loss:.3f}")
 
+            if ema_wrapper is not None:
+                ema_wrapper.restore()
         # Calculate average validation loss
         epoch_val_loss /= (crt_val_step + 1)
 
@@ -321,6 +330,12 @@ def main(args: DictConfig):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'scheduler_state_dict': scheduler.state_dict(),
                 }, checkpoint_path)
+                if ema_wrapper is not None:
+                    ema_path = os.path.join(logging_dir, f"checkpoints/_ema_{ema_wrapper.decay}_{crt_epoch}.pth")
+                    torch.save({
+                        'model_state_dict': model.module.state_dict() if DIST_WRAPPER.world_size > 1 else model.state_dict(),
+                    }, ema_path)
+                    ema_wrapper.restore()
 
         torch.cuda.empty_cache()
 

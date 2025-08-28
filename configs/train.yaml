@@ -2,16 +2,18 @@
 
 batch_size: 4  # batch size on single device
 epochs: 200
+target_pred: v
 checkpoint_interval: 10  # save checkpoint every n epochs
 seed: 42
 deterministic: False
 logging_dir: "./logs"  # better absolute path, to revise
 
 motif_conditioning: False
-self_conditioning: True
+self_conditioning: False
 
 resume:
   ckpt_dir: null
+  ema_dir: null
   load_model_only: True
 
 ema:
