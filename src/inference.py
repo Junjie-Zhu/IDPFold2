@@ -123,16 +123,18 @@ def main(args: DictConfig):
                 flow_matching=flow_matching,
                 model=model,
                 motif_factory=motif_factory if args.motif_conditioning else None,
+                target_pred=args.target_pred,
                 guidance_weight=args.guidance_weight,
                 autoguidance_ratio=args.autoguidance_ratio,
                 schedule_args=args.schedule,
                 sampling_args=args.sampling,
                 motif_conditioning=args.motif_conditioning,
                 self_conditioning=args.self_conditioning,
+                device=device,
             )
 
             to_pdb_simple(
-                atom_positions=pred_structure,
+                atom_positions=pred_structure * 10,  # nm to Angstrom
                 output_dir=os.path.join(logging_dir, "samples"),
             )
 

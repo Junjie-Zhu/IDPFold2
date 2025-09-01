@@ -253,12 +253,14 @@ def generating_predict(
     model: nn.Module,
     model_ag: Optional[nn.Module] = None,
     motif_factory: Optional[nn.Module] = None,
+    target_pred: str = 'x_1',
     guidance_weight = 1.0,
     autoguidance_ratio = 0.0,
     schedule_args: dict = None,
     sampling_args: dict = None,
     motif_conditioning = False,
-    self_conditioning = False
+    self_conditioning = False,
+    device = 'cpu'
 ):
     cleaned_conditioned_predict = partial(
         conditioned_predict,
@@ -266,13 +268,12 @@ def generating_predict(
         model=model,
         model_ag=model_ag,
         motif_factory=motif_factory,
-        target_pred='x_1',
+        target_pred=target_pred,
         guidance_weight=guidance_weight,
         autoguidance_ratio=autoguidance_ratio,
         motif_conditioning=motif_conditioning
     )
 
-    device = batch.device
     nsamples = batch["nsamples"]
     nres = batch["nres"]
     mask = batch["mask"].squeeze(0) if 'mask' in batch else torch.ones(nsamples, nres).long().bool().to(device)

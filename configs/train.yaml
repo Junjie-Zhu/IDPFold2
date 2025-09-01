@@ -37,7 +37,7 @@ data:
   fraction: 0.0005
   molecule_type: "protein"
   experiment_types: ["diffraction", "EM"]
-  min_length: 50
+  min_length: 20
   max_length: 256
   oligomeric_min: null
   oligomeric_max: null
