@@ -139,6 +139,7 @@ def main(args: DictConfig):
         ema_wrapper = EMAWrapper(
             model=model,
             decay=args.ema.decay,
+            mutable_param_keywords=args.ema.mutable_param_keywords,
         )
         ema_wrapper.register()
     else:
@@ -253,8 +254,6 @@ def main(args: DictConfig):
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            if args.loss.clip_grad_value > 0:
-                torch.nn.utils.clip_grad_value_(model.parameters(), args.loss.clip_grad_value)
             optimizer.step()
             scheduler.step()
 
@@ -331,6 +330,7 @@ def main(args: DictConfig):
                     'scheduler_state_dict': scheduler.state_dict(),
                 }, checkpoint_path)
                 if ema_wrapper is not None:
+                    ema_wrapper.apply_shadow()
                     ema_path = os.path.join(logging_dir, f"checkpoints/_ema_{ema_wrapper.decay}_{crt_epoch}.pth")
                     torch.save({
                         'model_state_dict': model.module.state_dict() if DIST_WRAPPER.world_size > 1 else model.state_dict(),
@@ -355,7 +355,10 @@ def to_device(obj, device):
     elif isinstance(obj, torch.Tensor):
         obj = obj.to(device)
     else:
-        raise Exception(f"type {type(obj)} not supported")
+        try:
+            obj = obj.to(device)
+        except:
+            raise Exception(f"type {type(obj)} not supported")
     return obj
 
 

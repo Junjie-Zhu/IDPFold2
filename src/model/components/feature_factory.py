@@ -348,7 +348,7 @@ class XscPairwiseDistancesPairFeat(Feature):
 class PLMSeqFeat(Feature):
     """Computes PLM sequence feature, shape [b, n, plm_dim]."""
 
-    def __init__(self, plm_in_dim, plm_out_dim):
+    def __init__(self, plm_in_dim, plm_out_dim, **kwargs):
         super().__init__(dim=plm_out_dim)
 
         self.layernorm = torch.nn.LayerNorm(plm_in_dim)

@@ -1,31 +1,50 @@
 import logging
 import os
 import warnings
-from random import random
+from typing import List
 
 import rootutils
 import datetime
 
 import torch
+from torch.utils.data import DataLoader, Dataset
 import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from src.data.dataset import BioTrainingDataset
-from src.data.dataloader import get_training_dataloader, get_inference_dataloader
-from src.data.transform import BioFeatureTransform
-from src.model.residue_generate_network import ResGenNet
-from src.model.diffusion_sampler import InferenceNoiseScheduler, sample_diffusion
-from src.model.loss import AllLosses
-from src.model.optimizer import get_optimizer, get_lr_scheduler
+from src.model.integral import generating_predict
+from src.model.protein_transformer import ProteinTransformerAF3
+from src.model.flow_matching.r3flow import R3NFlowMatcher
+from src.model.components.motif_factory import SingleMotifFactory
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
 from src.utils.pdb_utils import to_pdb_simple
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+class GenerationDataset(Dataset):
+    def __init__(self, nres=[110], dt=0.005, nsamples=10):
+        super(GenerationDataset, self).__init__()
+        self.nres = [int(n) for n in nres]
+        self.dt = dt
+        if isinstance(nsamples, List):
+            assert len(nsamples) == len(nres)
+            self.nsamples = nsamples
+        elif isinstance(nsamples, int):
+            self.nsamples = [nsamples] * len(nres)
+        else:
+            raise ValueError(f"Unknown type of nsamples {type(nsamples)}")
+
+    def __len__(self):
+        return len(self.nres)
+
+    def __getitem__(self, idx):
+        return {
+            "nres": self.nres[idx],
+            "dt": self.dt,
+            "nsamples": self.nsamples[idx],
+        }
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="inference")
 def main(args: DictConfig):
@@ -69,34 +88,17 @@ def main(args: DictConfig):
     )
 
     # instantiate dataset
-    dataset = BioTrainingDataset(
-        path_to_dataset=args.data.path_to_dataset,
-        transform=BioFeatureTransform(
-            recenter_atoms=args.data.recenter_atoms,
-            eps=args.data.eps,
-        ),
+    dataset = GenerationDataset(
+        nres=args.data.nres,
+        dt=args.data.dt,
+        nsamples=args.data.nsamples,
     )
-    inference_loader = get_inference_dataloader(
-        dataset=dataset,
-        batch_size=args.batch_size,
-        distributed=DIST_WRAPPER.world_size > 1,
-        num_workers=args.data.num_workers,
-        pin_memory=args.data.pin_memory,
-    )
+    inference_loader = DataLoader(dataset, batch_size=1)
 
     # instantiate model
-    model = ResGenNet(
-        s_input=args.model.s_input,
-        s_trunk=args.model.s_trunk,
-        z_trunk=args.model.z_trunk,
-        s_atom=args.model.s_atom,
-        z_atom=args.model.z_atom,
-        s_noise=args.model.s_noise,
-        z_template=args.model.z_template,
-        n_layers=args.model.n_layers,
-        n_attn_heads=args.model.n_attn_heads,
-        sigma_data=args.sigma_data,
-    ).to(device)
+    model = ProteinTransformerAF3(**args.model).to(device)
+    flow_matching = R3NFlowMatcher(zero_com=not args.motif_conditioning, scale_ref=1.0)
+    motif_factory = SingleMotifFactory(motif_prob=0 if not args.motif_conditioning else args.motif_prob)
 
     assert os.path.isfile(args.ckpt_dir), f"Checkpoint file not found: {args.ckpt_dir}"
     checkpoint = torch.load(args.ckpt_dir, map_location=device)
@@ -108,13 +110,6 @@ def main(args: DictConfig):
         logging.info(f"Loaded checkpoint from {args.ckpt_dir}")
         logging.info(f"Model has {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
 
-    noise_schedule = InferenceNoiseScheduler(
-        s_max=args.noise.s_max,
-        s_min=args.noise.s_min,
-        rho=args.noise.rho,
-        sigma_data=args.sigma_data,
-    )
-
     # sanity check
     torch.cuda.empty_cache()
     model.eval()
@@ -122,24 +117,18 @@ def main(args: DictConfig):
         for inference_iter, inference_dict in tqdm(enumerate(inference_loader)):
             torch.cuda.empty_cache()
             inference_dict = to_device(inference_dict, device)
-            s_inputs = inference_dict['plm_embedding']
 
-            batch_num = args.n_samples // args.n_samples_per_batch
-            x_denoised = []
-            for i in range(batch_num):
-                x_denoised.append(sample_diffusion(
-                    denoise_net=model,
-                    s_inputs=s_inputs,
-                    input_feature_dict=inference_dict,
-                    noise_schedule=noise_schedule(N_step=200, device=s_inputs.device, dtype=s_inputs.dtype),
-                    N_sample=args.n_samples_per_batch
-                ))
-            x_denoised = torch.cat(x_denoised, dim=1)
-
-            to_pdb_simple(
-                inference_dict,
-                x_denoised,
-                os.path.join(logging_dir, "samples"),
+            pred_structure = generating_predict(
+                batch=inference_dict,
+                flow_matching=flow_matching,
+                model=model,
+                motif_factory=motif_factory if args.motif_conditioning else None,
+                guidance_weight=args.guidance_weight,
+                autoguidance_ratio=args.autoguidance_ratio,
+                schedule_args=args.schedule,
+                sampling_args=args.sampling,
+                motif_conditioning=args.motif_conditioning,
+                self_conditioning=args.self_conditioning,
             )
 
     # Clean up process group when finished
@@ -158,7 +147,10 @@ def to_device(obj, device):
     elif isinstance(obj, torch.Tensor):
         obj = obj.to(device)
     else:
-        raise Exception(f"type {type(obj)} not supported")
+        try:
+            obj = obj.to(device)
+        except:
+            raise Exception(f"type {type(obj)} not supported")
     return obj
 
 

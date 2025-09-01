@@ -1,4 +1,5 @@
 import random
+from functools import partial
 from typing import Optional, Callable
 from math import prod
 
@@ -54,7 +55,7 @@ def conditioned_predict(
     x_pred = prediction_to_x_clean(nn_out, batch, target_pred=target_pred)
 
     if guidance_weight != 1.0:
-        assert autoguidance_ratio >= 0.0 and autoguidance_ratio <= 1.0
+        assert 0.0 <= autoguidance_ratio <= 1.0
         if autoguidance_ratio > 0.0:  # Use auto-guidance
             assert model_ag is not None, "Model for auto-guidance must be provided"
             nn_out_ag = model_ag(batch)
@@ -76,8 +77,9 @@ def conditioned_predict(
         x_pred = guidance_weight * x_pred + (1 - guidance_weight) * (
             autoguidance_ratio * x_pred_ag + (1 - autoguidance_ratio) * x_pred_uncond
         )
-        v = flow_matching.xt_dot(x_pred, batch["x_t"], batch["t"], batch["mask"])
-        return x_pred, v
+
+    v = flow_matching.xt_dot(x_pred, batch["x_t"], batch["t"], batch["mask"])
+    return x_pred, v
 
 
 def sample_t(mode, shape, device, **kwargs):
@@ -208,7 +210,12 @@ def training_predict(
     x_1 = flow_matching._mask_and_zero_com(x_1, mask)
 
     # sample noise scale
-    t = sample_t(noise_kwargs["mode"], batch_shape, device, **noise_kwargs)
+    if "mode" in noise_kwargs:
+        noise_mode = noise_kwargs["mode"]
+        noise_kwargs.pop("mode")
+    else:
+        noise_mode = "uniform"
+    t = sample_t(noise_mode, batch_shape, device, **noise_kwargs)
     x_0 = flow_matching.sample_reference(
         n=n, shape=batch_shape, device=device, dtype=dtype, mask=mask
     )
@@ -244,9 +251,51 @@ def generating_predict(
     batch,
     flow_matching: Callable,
     model: nn.Module,
+    model_ag: Optional[nn.Module] = None,
     motif_factory: Optional[nn.Module] = None,
-    noise_kwargs: dict = None,
-    motif_conditioning=False
+    guidance_weight = 1.0,
+    autoguidance_ratio = 0.0,
+    schedule_args: dict = None,
+    sampling_args: dict = None,
+    motif_conditioning = False,
+    self_conditioning = False
 ):
-    # not implemented
-    return 0
+    cleaned_conditioned_predict = partial(
+        conditioned_predict,
+        flow_matching=flow_matching,
+        model=model,
+        model_ag=model_ag,
+        motif_factory=motif_factory,
+        target_pred='x_1',
+        guidance_weight=guidance_weight,
+        autoguidance_ratio=autoguidance_ratio,
+        motif_conditioning=motif_conditioning
+    )
+
+    device = batch.device
+    nsamples = batch["nsamples"]
+    nres = batch["nres"]
+    mask = batch["mask"].squeeze(0) if 'mask' in batch else torch.ones(nsamples, nres).long().bool().to(device)
+
+    return flow_matching.full_simulation(
+        cleaned_conditioned_predict,
+        dt=batch["dt"].to(dtype=torch.float32),
+        nsamples=nsamples,
+        n=nres,
+        self_cond=self_conditioning,
+        plm_embedding=None,  # not implemented yet
+        device=device,
+        mask=mask,
+        dtype=torch.float32,
+        schedule_mode=schedule_args.get('schedule_mode', 'log'),
+        schedule_p=schedule_args.get('schedule_p', 2.0),
+        sampling_mode=sampling_args["sampling_mode"],
+        sc_scale_noise=sampling_args["sc_scale_noise"],
+        sc_scale_score=sampling_args["sc_scale_score"],
+        gt_mode=sampling_args["gt_mode"],
+        gt_p=sampling_args["gt_p"],
+        gt_clamp_val=sampling_args["gt_clamp_val"],
+        x_motif=None,  # not implemented yet
+        fixed_sequence_mask=None,  # not implemented yet
+        fixed_structure_mask=None,  # not implemented yet
+    )

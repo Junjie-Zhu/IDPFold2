@@ -404,7 +404,7 @@ class R3NFlowMatcher:
             nsamples: int,
             n: int,
             self_cond: bool,
-            cath_code: List[List[str]],
+            plm_embedding: torch.Tensor,
             device: torch.device,
             mask: Tensor,
             schedule_mode: Literal[
@@ -438,7 +438,7 @@ class R3NFlowMatcher:
             nsamples: number of samples to generate, int
             n: protein length
             self_cond: whether to use self conditioning or not
-            cath_code: list of cath codes to be conditioned on
+            plm_embedding: embedding tensor
             mask: Binary mask of shape [*, n]
             schedule_mode: "uniform", "power", "log", "inv_smooth_step"
             schedule_p: parameter of the schedule for the times covering [0, 1]
@@ -511,8 +511,8 @@ class R3NFlowMatcher:
                         "x_motif": x_motif
                     }
 
-                if cath_code is not None:
-                    nn_in["cath_code"] = cath_code
+                if plm_embedding is not None:
+                    nn_in["plm_embedding"] = plm_embedding
                 if step > 0 and self_cond:
                     nn_in["x_sc"] = x_1_pred  # Self-conditioning
 
