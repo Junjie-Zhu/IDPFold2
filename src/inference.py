@@ -89,9 +89,9 @@ def main(args: DictConfig):
 
     # instantiate dataset
     dataset = GenerationDataset(
-        nres=args.data.nres,
-        dt=args.data.dt,
-        nsamples=args.data.nsamples,
+        nres=args.nres,
+        dt=args.dt,
+        nsamples=args.nsamples,
     )
     inference_loader = DataLoader(dataset, batch_size=1)
 
@@ -129,6 +129,11 @@ def main(args: DictConfig):
                 sampling_args=args.sampling,
                 motif_conditioning=args.motif_conditioning,
                 self_conditioning=args.self_conditioning,
+            )
+
+            to_pdb_simple(
+                atom_positions=pred_structure,
+                output_dir=os.path.join(logging_dir, "samples"),
             )
 
     # Clean up process group when finished
