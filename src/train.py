@@ -29,7 +29,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train")
 def main(args: DictConfig):
-    logging_dir = os.path.join(args.logging_dir, f"TRAIN_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
+    logging_dir = os.path.join(args.logging_dir, f"{args.task_prefix}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
     if DIST_WRAPPER.rank == 0:
         # update logging directory with current time
         if not os.path.isdir(args.logging_dir):
@@ -74,26 +74,28 @@ def main(args: DictConfig):
         deterministic=args.deterministic,
     )
 
+    dataselector = PDBDataSelector(
+        data_dir=args.data.data_dir,
+        fraction=args.data.fraction,
+        molecule_type=args.data.molecule_type,
+        experiment_types=args.data.experiment_types,
+        min_length=args.data.min_length,
+        max_length=args.data.max_length,
+        oligomeric_min=args.data.oligomeric_min,
+        oligomeric_max=args.data.oligomeric_max,
+        best_resolution=args.data.best_resolution,
+        worst_resolution= args.data.worst_resolution,
+        has_ligands=[],
+        remove_ligands=[],
+        remove_non_standard_residues=True,
+        remove_pdb_unavailable=True,
+        exclude_ids=[]
+    ) if args.data.molecule_type is not None else None
+
     # instantiate dataset
     data_module = PDBDataModule(
         data_dir=args.data.data_dir,
-        dataselector=PDBDataSelector(
-            data_dir=args.data.data_dir,
-            fraction=args.data.fraction,
-            molecule_type=args.data.molecule_type,
-            experiment_types=args.data.experiment_types,
-            min_length=args.data.min_length,
-            max_length=args.data.max_length,
-            oligomeric_min=args.data.oligomeric_min,
-            oligomeric_max=args.data.oligomeric_max,
-            best_resolution=args.data.best_resolution,
-            worst_resolution= args.data.worst_resolution,
-            has_ligands=[],
-            remove_ligands=[],
-            remove_non_standard_residues=True,
-            remove_pdb_unavailable=True,
-            exclude_ids=[]
-        ),
+        dataselector=dataselector,
         datasplitter=PDBDataSplitter(
             data_dir=args.data.data_dir,
             train_val_test=args.data.train_val_test,
@@ -107,6 +109,7 @@ def main(args: DictConfig):
         batch_padding=args.data.batch_padding,
         sampling_mode=args.data.sampling_mode,
         transforms=[GlobalRotationTransform(), ChainBreakPerResidueTransform()],
+        plm_embedding=args.data.plm_embed_dir,
         batch_size=args.batch_size,
         num_workers=args.data.num_workers,
         pin_memory=args.data.pin_memory,

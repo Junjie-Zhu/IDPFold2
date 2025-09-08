@@ -27,6 +27,7 @@ noise:
 
 data:
   data_dir: ./data/pdb_train/
+  plm_embed_dir: ./data/embedding/
   in_memory: False
   format: "cif"
   overwrite: False

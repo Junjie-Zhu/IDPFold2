@@ -356,8 +356,8 @@ class PLMSeqFeat(Feature):
         self.relu = torch.nn.ReLU()
 
     def forward(self, batch):
-        if "plm_embedding" in batch:
-            plm_embedding = batch["plm_embedding"]
+        if "plm_emb" in batch:
+            plm_embedding = batch["plm_emb"]
             return self.relu(self.linear(self.layernorm(plm_embedding)))  # [b, n, plm_dim]
         else:
             xt = batch["x_t"]  # [b, n, 3]

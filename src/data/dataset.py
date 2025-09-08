@@ -338,6 +338,7 @@ class PDBDataset(Dataset):
         chains: Optional[List[str]] = None,
         data_dir: Optional[str] = None,
         transform: Optional[Callable] = None,
+        plm_embedding: bool = False,
         format: Literal["mmtf", "pdb", "cif", "ent"] = "cif",
         in_memory: bool = False,
         file_names: Optional[List[str]] = None,
@@ -370,11 +371,16 @@ class PDBDataset(Dataset):
         self.file_names = file_names
         self.num_workers = num_workers
         self.transform = transform
+        self.plm_embedding = plm_embedding
         self.sequence_id_to_idx = None
 
         if self.in_memory:
             logger.info("Reading data into memory")
             self.data = [torch.load(self.processed_dir / f) for f in tqdm(file_names)]
+
+            if self.plm_embedding is not None:
+                logger.info("Indexing sequence ids to data indices for PLM embedding loading")
+                self.plm_data = [torch.load(self.plm_embedding / f) for f in tqdm(file_names)]
 
     def __len__(self):
         return len(self.file_names)
@@ -390,6 +396,8 @@ class PDBDataset(Dataset):
         """
         if self.in_memory:
             graph = self.data[idx]
+            if self.plm_embedding is not None:
+                graph.plm_emb = self.plm_data[idx]
         else:
             if self.file_names is not None:
                 fname = f"{self.file_names[idx]}.pt"
@@ -399,6 +407,9 @@ class PDBDataset(Dataset):
                 fname = f"{self.pdb_codes[idx]}.pt"
 
             graph = torch.load(self.data_dir / "processed" / fname, weights_only=False)
+            if self.plm_embedding is not None:
+                plm_graph = torch.load(self.plm_embedding / fname, weights_only=False)
+                graph.plm_emb = plm_graph.plm_emb
 
         # reorder coords to be in OpenFold and not PDB convention
         graph.coords = graph.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
@@ -424,6 +435,7 @@ class PDBDataModule():
         batch_padding: bool = True,
         sampling_mode: Literal["random", "cluster-random", "cluster-reps"] = "random",
         transforms: Optional[List[Callable]] = None,
+        plm_embedding: str = None,
         batch_size: int = 32,
         num_workers: int = 32,
         pin_memory: bool = False,
@@ -450,6 +462,7 @@ class PDBDataModule():
         self.transform = (
             self._compose_transforms(transforms) if transforms is not None else None
         )
+        self.plm_embedding = plm_embedding
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
@@ -717,6 +730,7 @@ class PDBDataModule():
             chains=chains,
             data_dir=self.data_dir,
             transform=self.transform,
+            plm_embedding=self.plm_embedding,
             format=self.format,
             in_memory=self.in_memory,
             file_names=file_names,
