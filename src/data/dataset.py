@@ -338,7 +338,7 @@ class PDBDataset(Dataset):
         chains: Optional[List[str]] = None,
         data_dir: Optional[str] = None,
         transform: Optional[Callable] = None,
-        plm_embedding: bool = False,
+        plm_embedding: str = None,
         format: Literal["mmtf", "pdb", "cif", "ent"] = "cif",
         in_memory: bool = False,
         file_names: Optional[List[str]] = None,
@@ -371,7 +371,7 @@ class PDBDataset(Dataset):
         self.file_names = file_names
         self.num_workers = num_workers
         self.transform = transform
-        self.plm_embedding = plm_embedding
+        self.plm_embedding = pathlib.Path(plm_embedding)
         self.sequence_id_to_idx = None
 
         if self.in_memory:
@@ -380,7 +380,7 @@ class PDBDataset(Dataset):
 
             if self.plm_embedding is not None:
                 logger.info("Indexing sequence ids to data indices for PLM embedding loading")
-                self.plm_data = [torch.load(self.plm_embedding / f) for f in tqdm(file_names)]
+                self.plm_data = [torch.load(self.plm_embedding / ('_'.join(f.split('_')[:-1]) + '.pt')) for f in tqdm(file_names)]
 
     def __len__(self):
         return len(self.file_names)
@@ -408,8 +408,9 @@ class PDBDataset(Dataset):
 
             graph = torch.load(self.data_dir / "processed" / fname, weights_only=False)
             if self.plm_embedding is not None:
-                plm_graph = torch.load(self.plm_embedding / fname, weights_only=False)
-                graph.plm_emb = plm_graph.plm_emb
+                plm_fname = '_'.join(fname.split('_')[:-1]) + '.pt'
+                plm_emb = torch.load(self.plm_embedding / plm_fname, weights_only=False)
+                graph.plm_emb = plm_emb
 
         # reorder coords to be in OpenFold and not PDB convention
         graph.coords = graph.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]

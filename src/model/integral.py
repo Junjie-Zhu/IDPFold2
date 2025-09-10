@@ -277,6 +277,7 @@ def generating_predict(
     nsamples = batch["nsamples"]
     nres = batch["nres"]
     mask = batch["mask"].squeeze(0) if 'mask' in batch else torch.ones(nsamples, nres).long().bool().to(device)
+    plm_embedding = batch["plm_emb"] if "plm_emb" in batch else None
 
     return flow_matching.full_simulation(
         cleaned_conditioned_predict,
@@ -284,7 +285,7 @@ def generating_predict(
         nsamples=nsamples,
         n=nres,
         self_cond=self_conditioning,
-        plm_embedding=None,  # not implemented yet
+        plm_embedding=plm_embedding,
         device=device,
         mask=mask,
         dtype=torch.float32,

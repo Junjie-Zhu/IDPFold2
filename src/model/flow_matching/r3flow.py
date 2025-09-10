@@ -512,7 +512,7 @@ class R3NFlowMatcher:
                     }
 
                 if plm_embedding is not None:
-                    nn_in["plm_embedding"] = plm_embedding
+                    nn_in["plm_emb"] = plm_embedding
                 if step > 0 and self_cond:
                     nn_in["x_sc"] = x_1_pred  # Self-conditioning
 

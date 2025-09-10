@@ -1,7 +1,7 @@
 import logging
 import os
 import warnings
-from typing import List
+from typing import List, Optional, Union
 
 import rootutils
 import datetime
@@ -23,28 +23,57 @@ from src.utils.pdb_utils import to_pdb_simple
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+
 class GenerationDataset(Dataset):
-    def __init__(self, nres=[110], dt=0.005, nsamples=10):
-        super(GenerationDataset, self).__init__()
-        self.nres = [int(n) for n in nres]
+    def __init__(
+            self,
+            dt: float = 0.005,
+            nsamples: Union[int, List[int]] = 10,
+            plm_emb_dir: Optional[str] = None,
+            nres: Optional[List[int]] = None,
+    ):
+        super().__init__()
         self.dt = dt
-        if isinstance(nsamples, List):
-            assert len(nsamples) == len(nres)
-            self.nsamples = nsamples
-        elif isinstance(nsamples, int):
-            self.nsamples = [nsamples] * len(nres)
+        self.use_plm = plm_emb_dir is not None
+
+        if self.use_plm:
+            self.data_paths = sorted(
+                [os.path.join(plm_emb_dir, f) for f in os.listdir(plm_emb_dir) if f.endswith('.pt')])
+            self.nres = [None] * len(self.data_paths)  # Placeholder
+        elif nres is not None:
+            self.data_paths = [None] * len(nres)  # Placeholder
+            self.nres = [int(n) for n in nres]
         else:
-            raise ValueError(f"Unknown type of nsamples {type(nsamples)}")
+            raise ValueError("One of 'plm_emb_dir' or 'nres' must be provided.")
+
+        # Consolidate nsamples handling
+        if isinstance(nsamples, int):
+            self.nsamples = [nsamples] * len(self.data_paths)
+        elif isinstance(nsamples, list):
+            if len(nsamples) != len(self.data_paths):
+                raise ValueError("Length of 'nsamples' list must match number of data points.")
+            self.nsamples = nsamples
+        else:
+            raise TypeError(f"Unsupported type for 'nsamples': {type(nsamples)}. Expected int or list.")
 
     def __len__(self):
-        return len(self.nres)
+        return len(self.data_paths)
 
-    def __getitem__(self, idx):
-        return {
-            "nres": self.nres[idx],
+    def __getitem__(self, idx: int):
+        data = {
             "dt": self.dt,
             "nsamples": self.nsamples[idx],
         }
+
+        if self.use_plm:
+            plm_emb = torch.load(self.data_paths[idx])
+            data["nres"] = plm_emb.shape[0]
+            data["plm_emb"] = plm_emb
+        else:
+            data["nres"] = self.nres[idx]
+
+        return data
+
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="inference")
 def main(args: DictConfig):
@@ -89,9 +118,10 @@ def main(args: DictConfig):
 
     # instantiate dataset
     dataset = GenerationDataset(
-        nres=args.nres,
         dt=args.dt,
         nsamples=args.nsamples,
+        plm_emb_dir=args.ckpt_dir,
+        nres=args.nres,
     )
     inference_loader = DataLoader(dataset, batch_size=1)
 
