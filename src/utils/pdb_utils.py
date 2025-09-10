@@ -21,9 +21,11 @@ INT_TO_CHAIN = {
 def to_pdb_simple(
     atom_positions: torch.Tensor,
     output_dir: str,
+    accession_code: str = None,
 ):
     n_samples, n_res, _ = atom_positions.shape
-    accession_code = f"samples_l{n_res}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    if accession_code is None:
+        accession_code = f"samples_l{n_res}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     with open(os.path.join(output_dir, f"{accession_code}.pdb"), 'w') as f:
         for sample in range(n_samples):

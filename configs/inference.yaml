@@ -1,6 +1,8 @@
 # configurations for inference
+plm_emb_dir: null  # path to the directory containing PLM embeddings, if any
 nres: [50, 100, 150, 200, 250]
 nsamples: 100
+max_batch_length: 5000  # maximum length of the batch in terms of total residues, to avoid OOM
 dt: 0.0025
 seed: 42
 deterministic: False

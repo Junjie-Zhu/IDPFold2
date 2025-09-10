@@ -7,6 +7,7 @@ import rootutils
 import datetime
 
 import torch
+from torch.cuda import CudaError
 from torch.utils.data import DataLoader, Dataset
 import torch.distributed as dist
 from tqdm import tqdm
@@ -69,6 +70,7 @@ class GenerationDataset(Dataset):
             plm_emb = torch.load(self.data_paths[idx])
             data["nres"] = plm_emb.shape[0]
             data["plm_emb"] = plm_emb
+            data["name"] = self.data_paths[idx].replace('.pt', '')
         else:
             data["nres"] = self.nres[idx]
 
@@ -120,7 +122,7 @@ def main(args: DictConfig):
     dataset = GenerationDataset(
         dt=args.dt,
         nsamples=args.nsamples,
-        plm_emb_dir=args.ckpt_dir,
+        plm_emb_dir=args.plm_emb_dir,
         nres=args.nres,
     )
     inference_loader = DataLoader(dataset, batch_size=1)
@@ -148,24 +150,49 @@ def main(args: DictConfig):
             torch.cuda.empty_cache()
             inference_dict = to_device(inference_dict, device)
 
-            pred_structure = generating_predict(
-                batch=inference_dict,
-                flow_matching=flow_matching,
-                model=model,
-                motif_factory=motif_factory if args.motif_conditioning else None,
-                target_pred=args.target_pred,
-                guidance_weight=args.guidance_weight,
-                autoguidance_ratio=args.autoguidance_ratio,
-                schedule_args=args.schedule,
-                sampling_args=args.sampling,
-                motif_conditioning=args.motif_conditioning,
-                self_conditioning=args.self_conditioning,
-                device=device,
-            )
+            try:
+                pred_structure = generating_predict(
+                    batch=inference_dict,
+                    flow_matching=flow_matching,
+                    model=model,
+                    motif_factory=motif_factory if args.motif_conditioning else None,
+                    target_pred=args.target_pred,
+                    guidance_weight=args.guidance_weight,
+                    autoguidance_ratio=args.autoguidance_ratio,
+                    schedule_args=args.schedule,
+                    sampling_args=args.sampling,
+                    motif_conditioning=args.motif_conditioning,
+                    self_conditioning=args.self_conditioning,
+                    device=device,
+                )
+            except RuntimeError:
+                logging.info(f"OOM when generating {inference_dict.get('name', ['unknown'])[0]}, try reducing batch size")
+                nsamples_per_batch = args.max_batch_length // inference_dict['nres'][0]
+                for i in range((args.nsamples - 1) // nsamples_per_batch + 1):
+                    inference_dict["nsamples"] = min(nsamples_per_batch, args.nsamples - i * nsamples_per_batch)
+                    pred_structure_batch = generating_predict(
+                        batch=inference_dict,
+                        flow_matching=flow_matching,
+                        model=model,
+                        motif_factory=motif_factory if args.motif_conditioning else None,
+                        target_pred=args.target_pred,
+                        guidance_weight=args.guidance_weight,
+                        autoguidance_ratio=args.autoguidance_ratio,
+                        schedule_args=args.schedule,
+                        sampling_args=args.sampling,
+                        motif_conditioning=args.motif_conditioning,
+                        self_conditioning=args.self_conditioning,
+                        device=device,
+                    )
+                    if i == 0:
+                        pred_structure = pred_structure_batch
+                    else:
+                        pred_structure = torch.cat([pred_structure, pred_structure_batch], dim=0)
 
             to_pdb_simple(
                 atom_positions=pred_structure * 10,  # nm to Angstrom
                 output_dir=os.path.join(logging_dir, "samples"),
+                accession_code=inference_dict.get("name", [None])[0],
             )
 
     # Clean up process group when finished
