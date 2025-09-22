@@ -358,7 +358,8 @@ class PLMSeqFeat(Feature):
     def forward(self, batch):
         if "plm_emb" in batch:
             plm_embedding = batch["plm_emb"]
-            return self.relu(self.linear(self.layernorm(plm_embedding)))  # [b, n, plm_dim]
+            plm_mask = (torch.sum(plm_embedding, dim=(-1, -2)) != 0).float()  # [b]
+            return self.relu(self.linear(self.layernorm(plm_embedding))) * plm_mask[..., None, None]  # [b, n, plm_dim]
         else:
             xt = batch["x_t"]  # [b, n, 3]
             b, n = xt.shape[0], xt.shape[1]

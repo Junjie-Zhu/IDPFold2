@@ -7,7 +7,7 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
-
+import os
 import pathlib
 from typing import Callable, Dict, List, Literal, Optional, Tuple, Union, Iterable
 
@@ -409,8 +409,11 @@ class PDBDataset(Dataset):
             graph = torch.load(self.data_dir / "processed" / fname, weights_only=False)
             if self.plm_embedding is not None:
                 plm_fname = '_'.join(fname.split('_')[:-1]) + '.pt'
-                plm_emb = torch.load(self.plm_embedding / plm_fname, weights_only=False)
-                graph.plm_emb = plm_emb
+                if os.path.isfile(self.plm_embedding / plm_fname):
+                    plm_emb = torch.load(self.plm_embedding / plm_fname, weights_only=False)
+                    graph.plm_emb = plm_emb
+                else:
+                    graph.plm_emb = torch.zeros((graph.coords.shape[0], 1280), dtype=torch.float32)  # dummy embedding
 
         # reorder coords to be in OpenFold and not PDB convention
         graph.coords = graph.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
@@ -418,8 +421,40 @@ class PDBDataset(Dataset):
 
         if self.transform:
             graph = self.transform(graph)
+        graph = continuous_crop(graph, crop_size=256)
 
         return graph
+
+
+def continuous_crop(graph, crop_size):
+    """Crop a graph to a fixed size using continuous cropping.
+
+    Args:
+        graph (Data): PyTorch Geometric Data object.
+        crop_size (int): Size to crop the graph to.
+
+    Returns:
+        Data: Cropped PyTorch Geometric Data object.
+    """
+    n_res = graph.coords.shape[0]
+    if n_res <= crop_size:
+        return graph
+
+    start = torch.randint(0, n_res - crop_size + 1, (1,)).item()
+    end = start + crop_size
+
+    mask = torch.zeros(n_res, dtype=torch.bool)
+    mask[start:end] = True
+
+    cropped_graph = Data()
+    for key, item in graph:
+        if torch.is_tensor(item) and len(item.shape) >= 1:
+            cropped_graph[key] = item[mask]
+        elif isinstance(item, list) and len(item) == n_res:
+            cropped_graph[key] = item[start:end]
+        else:
+            cropped_graph[key] = item
+    return cropped_graph
 
 
 class PDBDataModule():

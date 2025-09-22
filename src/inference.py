@@ -7,7 +7,6 @@ import rootutils
 import datetime
 
 import torch
-from torch.cuda import CudaError
 from torch.utils.data import DataLoader, Dataset
 import torch.distributed as dist
 from tqdm import tqdm
@@ -70,7 +69,7 @@ class GenerationDataset(Dataset):
             plm_emb = torch.load(self.data_paths[idx])
             data["nres"] = plm_emb.shape[0]
             data["plm_emb"] = plm_emb
-            data["name"] = self.data_paths[idx].replace('.pt', '')
+            data["name"] = os.path.basename(self.data_paths[idx]).replace('.pt', '')
         else:
             data["nres"] = self.nres[idx]
 
@@ -142,6 +141,11 @@ def main(args: DictConfig):
         logging.info(f"Loaded checkpoint from {args.ckpt_dir}")
         logging.info(f"Model has {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
 
+    if args.autoguidance_ratio > 0.0 and args.ag_path is not None:
+        model_ag = model.copy()
+        checkpoint_ag = torch.load(args.ag_path, map_location=device)
+
+
     # sanity check
     torch.cuda.empty_cache()
     model.eval()
@@ -150,7 +154,8 @@ def main(args: DictConfig):
             torch.cuda.empty_cache()
             inference_dict = to_device(inference_dict, device)
 
-            try:
+            nsamples_per_batch = args.max_batch_length // inference_dict['nres'][0]
+            if nsamples_per_batch > args.nsamples:
                 pred_structure = generating_predict(
                     batch=inference_dict,
                     flow_matching=flow_matching,
@@ -165,9 +170,8 @@ def main(args: DictConfig):
                     self_conditioning=args.self_conditioning,
                     device=device,
                 )
-            except RuntimeError:
-                logging.info(f"OOM when generating {inference_dict.get('name', ['unknown'])[0]}, try reducing batch size")
-                nsamples_per_batch = args.max_batch_length // inference_dict['nres'][0]
+            else:
+                logging.info(f"Split {inference_dict['nsamples']} samples into batches of {nsamples_per_batch} due to potential memory limit")
                 for i in range((args.nsamples - 1) // nsamples_per_batch + 1):
                     inference_dict["nsamples"] = min(nsamples_per_batch, args.nsamples - i * nsamples_per_batch)
                     pred_structure_batch = generating_predict(
