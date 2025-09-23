@@ -343,6 +343,7 @@ class PDBDataset(Dataset):
         in_memory: bool = False,
         file_names: Optional[List[str]] = None,
         num_workers: int = 64,
+        train_all_atom: bool = False
     ):
         """
         Args:
@@ -373,6 +374,7 @@ class PDBDataset(Dataset):
         self.transform = transform
         self.plm_embedding = pathlib.Path(plm_embedding)
         self.sequence_id_to_idx = None
+        self.train_all_atom = train_all_atom
 
         if self.in_memory:
             logger.info("Reading data into memory")

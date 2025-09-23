@@ -503,7 +503,7 @@ class ProteinTransformerAF3(torch.nn.Module):
         return nn_out
 
 
-class AtomTransformer(nn.Module):
+class AtomTransformer(torch.nn.Module):
     def __init__(self, **kwargs):
         super(AtomTransformer, self).__init__()
 

@@ -133,3 +133,21 @@ restype_name_to_atom14_names = {
     'UNK': ['',  '',   '',  '',  '',   '',    '',    '',    '',    '',    '',    '',    '',    ''],
 
 }
+
+
+def atom37_to_atom14_indices():
+    indices_mapping = torch.zeros((len(restype_name_to_atom14_names), 14)).long()
+    mask_mapping = torch.zeros((len(restype_name_to_atom14_names), 14), dtype=torch.bool)
+    restype_to_idx = {name: i for i, name in enumerate(restype_name_to_atom14_names.keys())}
+
+    for i, (restype, atom14_names) in enumerate(restype_name_to_atom14_names.items()):
+        for j, atom_name in enumerate(atom14_names):
+            if atom_name in atom_types:
+                indices_mapping[i, j] = atom_types.index(atom_name)
+                mask_mapping[i, j] = True
+            else:
+                indices_mapping[i, j] = -1  # Padding index for missing atoms
+    return indices_mapping, mask_mapping, restype_to_idx
+
+
+ATOM37_TO_ATOM14_INDICES, ATOM14_MASK, RESTYPE_TO_IDX = atom37_to_atom14_indices()

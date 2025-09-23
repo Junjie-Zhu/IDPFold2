@@ -1,11 +1,14 @@
 import random
 from functools import partial
+from tkinter import X
 from typing import Optional, Callable
 from math import prod
 
 from scipy.spatial.transform import Rotation
 import torch
 import torch.nn as nn
+
+from src.common.atom37_constants import ATOM37_TO_ATOM14_INDICES, RESTYPE_TO_IDX, ATOM14_MASK
 
 nm_to_ang_scale = 10.0
 ang_to_nm = lambda trans: trans / nm_to_ang_scale
@@ -163,6 +166,82 @@ def extract_clean_sample(batch, flow_matching, global_rotation=True):
     )
 
 
+def extract_atom_clean_sample(batch, flow_matching, global_rotation=True):
+    coords_atom37 = batch["coords"]  # [b, n, 37, 3]
+    mask_atom37 = batch["mask_dict"]["coords"]  # [b, n, 37, 1]
+    restype = batch["aatype"]  # [b, n]
+
+    b, nres, _, coord_shape = coords_atom37.shape
+
+    x_1, mask = atom37_to_atom14_tensor(coords_atom37, mask_atom37, restype)
+    x_1 = x_1.view(b, nres * 14, coord_shape)
+    mask = mask.view(b, nres * 14)
+    if global_rotation:
+        x_1, mask = apply_random_rotation(x_1, mask, flow_matching)
+    return (
+        ang_to_nm(x_1),
+        mask,
+        (b,),
+        nres * 14,
+        x_1.dtype,
+    )
+
+
+def atom37_to_atom14_tensor(x, atom37_mask, restype):
+    """
+    Convert atom37 representation to atom14 representation using Torch.
+
+    Args:
+        x: Atom37 coordinates, shape [B, N, 37, D].
+        atom37_mask: Atom37 presence mask, shape [B, N, 37].
+        restype: Residue types, shape [B, N].
+
+    Returns:
+        A tuple containing:
+            - atom14_tensor: Atom14 coordinates, shape [B, N, 14, D].
+            - atom14_presence_mask: A boolean mask for the atom14 tensor,
+              shape [B, N, 14]. This is a combination of the residue type mask
+              and the input atom37_mask.
+    """
+    b, nres, _, d = x.shape
+    device = x.device
+
+    # Vectorize the residue type lookup using a mapping from string to index.
+    residue_indices_list = [[RESTYPE_TO_IDX[rt] for rt in batch] for batch in restype]
+    residue_indices = torch.tensor(residue_indices_list, dtype=torch.long, device=device)  # [B, N]
+
+    # Gather the atom37 indices and mask for the given residue types
+    atom37_indices = ATOM37_TO_ATOM14_INDICES.to(device)[residue_indices]  # [B, N, 14]
+    type_mask = ATOM14_MASK.to(device)[residue_indices]  # [B, N, 14]
+
+    # Use advanced indexing to gather data from the atom37 tensor
+    # The 'torch.arange' creates a broadcastable array for the batch and residue dimensions.
+    batch_idx = torch.arange(b, device=device)[:, None, None]
+    res_idx = torch.arange(nres, device=device)[None, :, None]
+
+    atom14_tensor = x[
+        batch_idx,
+        res_idx,
+        atom37_indices,
+        :
+    ]
+
+    gathered_mask = atom37_mask[
+        batch_idx,
+        res_idx,
+        atom37_indices
+    ]
+
+    # Combine the two masks: an atom is present only if it's in the residue type
+    # mask AND the input atom37_mask.
+    atom14_presence_mask = gathered_mask & type_mask
+
+    # Zero out the coordinates for non-existent atoms using the combined mask.
+    atom14_tensor = atom14_tensor * atom14_presence_mask.unsqueeze(-1)
+
+    return atom14_tensor, atom14_presence_mask
+
+
 def compute_fm_loss(
     x_1: torch.Tensor,
     x_1_pred: torch.Tensor,
@@ -317,12 +396,10 @@ def atom_training_predict(
     batch,
     flow_matching,
     model: nn.Module,
-    motif_factory: Optional[nn.Module],
     noise_kwargs: dict,
-    target_pred: str = 'x_1',
     r_ratio: float = 0.25,
 ):
-    x_0, mask, batch_shape, n, dtype = extract_clean_sample(batch, flow_matching)
+    x_0, mask, batch_shape, n, dtype = extract_atom_clean_sample(batch, flow_matching)
     device = x_0.device
 
     x_0 = flow_matching._mask_and_zero_com(x_0, mask)
@@ -362,3 +439,30 @@ def atom_training_predict(
     loss = mf_loss(u, u_target, mask)
 
     return loss
+
+
+def atom_generating_predict(
+    batch,
+    model: nn.Module,
+    flow_matching: Callable,
+    n_step: int = 5,
+    device = 'cpu'
+):
+    nsamples = batch["nsamples"]
+    nres = batch["nres"]
+    mask = batch["mask"].squeeze(0) if 'mask' in batch else torch.ones(nsamples, nres).long().bool().to(device)
+
+    z = flow_matching.sample_reference(
+        n=nres, shape=(nsamples,), device=device, dtype=torch.float32, mask=mask
+    )
+
+    t_vals = torch.linspace(1.0, 0.0, n_step + 1, device=device)  # [n_step + 1]
+
+    for i in range(n_step):
+        t = torch.full((nsamples,), t_vals[i], device=device)
+        r = torch.full((nsamples,), t_vals[i + 1], device=device)
+
+        v_t = model(z, t, r, batch_nn=batch)  # [nsamples, n * 14, 3]
+        z = z + (t - r) * v_t
+
+    return z
