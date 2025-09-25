@@ -1,6 +1,7 @@
 from typing import Dict, List, Literal
 
 import torch
+import torch.nn.functional as F
 from loguru import logger
 from torch_scatter import scatter_mean
 
@@ -141,6 +142,38 @@ class TimeEmbeddingPairFeat(Feature):
         t_emb = get_time_embedding(t, edim=self.dim)  # [b, t_emb_dim]
         t_emb = t_emb[:, None, None, :]  # [b, 1, 1, t_emb_dim]
         return t_emb.expand((t_emb.shape[0], n, n, t_emb.shape[3]))  # [b, n, t_emb_dim]
+
+
+class TimeIntervalEmbeddingSeqFeat(Feature):
+    """Computes time interval embedding and returns as sequence feature of shape [b, n, t_emb_dim]."""
+
+    def __init__(self, t_emb_dim, **kwargs):
+        super().__init__(dim=t_emb_dim)
+
+    def forward(self, batch):
+        t = batch["t"]  # [b]
+        r = batch["r"]
+        xt = batch["x_t"]  # [b, n, 3]
+        n = xt.shape[1]
+        t_emb = get_time_interval_embedding(t - r, edim=self.dim)  # [b, t_emb_dim]
+        t_emb = t_emb[:, None, :]  # [b, 1, t_emb_dim]
+        return t_emb.expand((t_emb.shape[0], n, t_emb.shape[2]))  # [b, n, t_emb_dim]
+
+
+class TimeIntervalEmbeddingPairFeat(Feature):
+    """Computes time interval embedding and returns as pair feature of shape [b, n, n, t_emb_dim]."""
+
+    def __init__(self, t_emb_dim, **kwargs):
+        super().__init__(dim=t_emb_dim)
+
+    def forward(self, batch):
+        t = batch["t"]  # [b]
+        r = batch["r"]
+        xt = batch["x_t"]  # [b, n, 3]
+        n = xt.shape[1]
+        t_emb = get_time_interval_embedding(t - r, edim=self.dim)  # [b, t_emb_dim]
+        t_emb = t_emb[:, None, None, :]  # [b, 1, 1, t_emb_dim]
+        return t_emb.expand((t_emb.shape[0], n, n, t_emb.shape[3]))  # [b, n, n, t_emb_dim]
 
 
 class IdxEmbeddingSeqFeat(Feature):
@@ -345,6 +378,65 @@ class XscPairwiseDistancesPairFeat(Feature):
             return torch.zeros(b, n, n, self.dim, device=x.device)
 
 
+class ResidueTypeSeqFeat(Feature):
+    """
+    Computes feature from residue type, feature of shape [b, n, 20].
+
+    Residue type is an integer in {0, 1, ..., 19}, coorsponding to the 20 aa types.
+    Feature is a one-hot vector of dimension 20.
+
+    Note that in residue type the padding is done with a -1, but this function
+    multiplies with the mask.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(dim=20)
+
+    def forward(self, batch):
+        assert (
+            "residue_type" in batch
+        ), "`residue_type` not in batch, cannot compute ResidueTypeSeqFeat"
+        rtype = batch["residue_type"]  # [b, n]
+        rpadmask = batch["mask_dict"]["residue_type"]  # [b, n] binary
+        rtype = rtype * rpadmask  # [b, n], the -1 padding becomes 0
+        rtype_onehot = F.one_hot(rtype, num_classes=20)  # [b, n, 20]
+        rtype_onehot = (
+            rtype_onehot * rpadmask[..., None]
+        )
+        return rtype_onehot * 1.0
+
+
+class ChainIdxSeqFeat(Feature):
+    """Gets chain idx feature (-1 for padding) and returns feature of shape [b, n, 1]."""
+
+    def __init__(self, **kwargs):
+        super().__init__(dim=1)
+
+    def forward(self, batch):
+        if "chains" in batch:
+            mask = batch["chains"].unsqueeze(-1)  # [b, n, 1]
+        else:
+            raise ValueError("chains")
+        return mask
+
+
+class ChainIdxPairFeat(Feature):
+    """Gets chain idx feature (-1 for padding) and returns feature of shape [b, n, n, 1]."""
+
+    def __init__(self, **kwargs):
+        super().__init__(dim=1)
+
+    def forward(self, batch):
+        if "chains" in batch:
+            seq_mask = batch["chains"]  # [b, n]
+            mask = torch.einsum("bi,bj->bij", seq_mask, seq_mask).unsqueeze(
+                -1
+            )  # [b, n, n, 1]
+        else:
+            raise ValueError("chains")
+        return mask
+
+
 class PLMSeqFeat(Feature):
     """Computes PLM sequence feature, shape [b, n, plm_dim]."""
 
@@ -431,6 +523,13 @@ class FeatureFactory(torch.nn.Module):
                 return MotifMaskSeqFeat(**kwargs)
             elif f == "plm_emb":
                 return PLMSeqFeat(**kwargs)
+            elif f == "restype":
+                return ResidueTypeSeqFeat(**kwargs)
+            elif f == "chain_idx":
+                return ChainIdxSeqFeat(**kwargs)
+            elif f == "time_interval_emb":
+                return TimeIntervalEmbeddingPairFeat(**kwargs)
+
             else:
                 raise IOError(f"Sequence feature {f} not implemented.")
 
@@ -447,6 +546,10 @@ class FeatureFactory(torch.nn.Module):
                 return MotifX1PairwiseDistancesPairFeat(**kwargs)
             elif f == "motif_structure_mask":
                 return MotifStructureMaskFeat(**kwargs)
+            elif f == "chain_idx_pair":
+                return ChainIdxPairFeat(**kwargs)
+            elif f == "time_interval_emb":
+                return TimeIntervalEmbeddingPairFeat(**kwargs)
             else:
                 raise IOError(f"Pair feature {f} not implemented.")
 

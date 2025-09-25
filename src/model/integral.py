@@ -169,7 +169,7 @@ def extract_clean_sample(batch, flow_matching, global_rotation=True):
 def extract_atom_clean_sample(batch, flow_matching, global_rotation=True):
     coords_atom37 = batch["coords"]  # [b, n, 37, 3]
     mask_atom37 = batch["mask_dict"]["coords"]  # [b, n, 37, 1]
-    restype = batch["aatype"]  # [b, n]
+    restype = batch["residues"]  # [b, n]
 
     b, nres, _, coord_shape = coords_atom37.shape
 
@@ -399,7 +399,7 @@ def atom_training_predict(
     noise_kwargs: dict,
     r_ratio: float = 0.25,
 ):
-    x_0, mask, batch_shape, n, dtype = extract_atom_clean_sample(batch, flow_matching)
+    x_0, mask, batch_shape, n, dtype = extract_atom_clean_sample(batch, flow_matching)  # b, n * 14, 3
     device = x_0.device
 
     x_0 = flow_matching._mask_and_zero_com(x_0, mask)
@@ -413,8 +413,8 @@ def atom_training_predict(
 
     assert 0.0 < r_ratio < 1.0, "r_ratio should be in (0, 1)"
     _r = sample_t(noise_mode, batch_shape, device, **noise_kwargs)
-    r = torch.minimum(_r, t)
     t = torch.maximum(_r, t)
+    r = torch.minimum(_r, t)
 
     _r_mask = r < r_ratio
     r[_r_mask] = t[_r_mask]
@@ -423,8 +423,10 @@ def atom_training_predict(
         n=n, shape=batch_shape, device=device, dtype=dtype, mask=mask
     )
 
-    x_t = flow_matching.interpolate(x_0, x_1, t)
-    v_t = flow_matching.xt_dot(x_0, x_t, t, mask)
+    x_t = flow_matching.interpolate(x_1, x_0, t) * mask[..., None]
+    v_t = flow_matching.xt_dot(x_0, x_t, t, mask) * mask[..., None]
+
+    x_t = x_t.view(batch_shape, n, 14 * 3)
 
     batch.update({"mask": (mask.view(batch_shape, n // 14, 14).sum(dim=-1) > 0).float(), "atom_mask": mask})
     _model = partial(model, batch_nn=batch)
@@ -456,11 +458,11 @@ def atom_generating_predict(
         n=nres, shape=(nsamples,), device=device, dtype=torch.float32, mask=mask
     )
 
-    t_vals = torch.linspace(1.0, 0.0, n_step + 1, device=device)  # [n_step + 1]
+    t_vals = torch.linspace(0.0, 1.0, n_step + 1, device=device)  # [n_step + 1]
 
     for i in range(n_step):
-        t = torch.full((nsamples,), t_vals[i], device=device)
-        r = torch.full((nsamples,), t_vals[i + 1], device=device)
+        r = torch.full((nsamples,), t_vals[i], device=device)
+        t = torch.full((nsamples,), t_vals[i + 1], device=device)
 
         v_t = model(z, t, r, batch_nn=batch)  # [nsamples, n * 14, 3]
         z = z + (t - r) * v_t

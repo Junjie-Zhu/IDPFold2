@@ -119,7 +119,7 @@ def main(args: DictConfig):
     train_loader, val_loader = data_module.get_train_dataloader()
 
     # instantiate model
-    model = ProteinTransformerAF3(**args.model).to(device)
+    model = AtomTransformer(**args.model).to(device)
     flow_matching = R3NFlowMatcher(zero_com=not args.motif_conditioning, scale_ref=1.0)
     motif_factory = SingleMotifFactory(motif_prob=0 if not args.motif_conditioning else args.motif_prob)
     nparam = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -195,15 +195,12 @@ def main(args: DictConfig):
             check_dict = to_device(check_dict, device)
 
             noise_kwargs = {**args.noise}
-            loss = training_predict(
+            loss = atom_training_predict(
                 batch=check_dict,
                 flow_matching=flow_matching,
                 model=model,
-                motif_factory=motif_factory,
                 noise_kwargs=noise_kwargs,
-                target_pred=args.target_pred,
-                motif_conditioning=args.motif_conditioning,
-                self_conditioning=args.self_conditioning,
+                r_ratio=args.r_ratio,
             )
             if check_iter >= 2:
                 break
@@ -244,15 +241,12 @@ def main(args: DictConfig):
                 ema_wrapper.update()
 
             noise_kwargs = {**args.noise}
-            loss = training_predict(
+            loss = atom_training_predict(
                 batch=train_dict,
                 flow_matching=flow_matching,
                 model=model,
-                motif_factory=motif_factory,
                 noise_kwargs=noise_kwargs,
-                target_pred=args.target_pred,
-                motif_conditioning=args.motif_conditioning,
-                self_conditioning=args.self_conditioning,
+                r_ratio=args.r_ratio,
             )
 
             optimizer.zero_grad(set_to_none=True)
@@ -292,15 +286,12 @@ def main(args: DictConfig):
                 val_dict = to_device(val_dict, device)
 
                 noise_kwargs = {**args.noise}
-                val_loss = training_predict(
+                val_loss = atom_training_predict(
                     batch=val_dict,
                     flow_matching=flow_matching,
                     model=model,
-                    motif_factory=motif_factory,
                     noise_kwargs=noise_kwargs,
-                    target_pred=args.target_pred,
-                    motif_conditioning=args.motif_conditioning,
-                    self_conditioning=args.self_conditioning,
+                    r_ratio=args.r_ratio,
                 )
 
                 step_val_loss = val_loss.item()

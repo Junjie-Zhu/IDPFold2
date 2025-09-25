@@ -525,7 +525,7 @@ class AtomTransformer(torch.nn.Module):
             )
 
         # To encode corrupted 3d positions
-        self.linear_3d_embed = torch.nn.Linear(3, kwargs["token_dim"], bias=False)
+        self.linear_3d_embed = torch.nn.Linear(14 * 4, kwargs["token_dim"], bias=False)
 
         # To form initial representation
         self.init_repr_factory = FeatureFactory(
@@ -655,7 +655,7 @@ class AtomTransformer(torch.nn.Module):
         batch_nn.update({
             "t": t,
             "r": r,
-            "x_t": x_t,
+            "x_t": x_t,  # [b, n, 14 * 3]
         })
 
         # Conditioning variables
@@ -663,7 +663,7 @@ class AtomTransformer(torch.nn.Module):
         c = self.transition_c_2(self.transition_c_1(c, mask), mask)  # [b, n, dim_cond]
 
         # Prepare input - coordinates and initial sequence representation from features
-        coors_3d = batch_nn["x_t"] * mask[..., None]  # [b, n, 3]
+        coors_3d = batch_nn["x_t"] * mask[..., None]  # [b, n, 14 * 3]
         coors_embed = (
                 self.linear_3d_embed(coors_3d) * mask[..., None]
         )  # [b, n, token_dim]
