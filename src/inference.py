@@ -141,10 +141,13 @@ def main(args: DictConfig):
         logging.info(f"Loaded checkpoint from {args.ckpt_dir}")
         logging.info(f"Model has {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
 
-    if args.autoguidance_ratio > 0.0 and args.ag_path is not None:
+    if args.autoguidance_ratio > 0.0 and args.ag_dir is not None:
         model_ag = model.copy()
-        checkpoint_ag = torch.load(args.ag_path, map_location=device)
-
+        checkpoint_ag = torch.load(args.ag_dir, map_location=device)
+        if DIST_WRAPPER.world_size > 1:
+            model_ag.module.load_state_dict(checkpoint_ag['model_state_dict'])
+        else:
+            model_ag.load_state_dict(checkpoint_ag['model_state_dict'])
 
     # sanity check
     torch.cuda.empty_cache()
@@ -160,6 +163,7 @@ def main(args: DictConfig):
                     batch=inference_dict,
                     flow_matching=flow_matching,
                     model=model,
+                    model_ag=model_ag if args.autoguidance_ratio > 0.0 and args.ag_dir is not None else None,
                     motif_factory=motif_factory if args.motif_conditioning else None,
                     target_pred=args.target_pred,
                     guidance_weight=args.guidance_weight,
@@ -178,6 +182,7 @@ def main(args: DictConfig):
                         batch=inference_dict,
                         flow_matching=flow_matching,
                         model=model,
+                        model_ag=model_ag if args.autoguidance_ratio > 0.0 and args.ag_dir is not None else None,
                         motif_factory=motif_factory if args.motif_conditioning else None,
                         target_pred=args.target_pred,
                         guidance_weight=args.guidance_weight,

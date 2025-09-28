@@ -1,5 +1,5 @@
 # configurations for training
-
+task_prefix: "TRAIN_ALL_ATOM"
 batch_size: 4  # batch size on single device
 epochs: 200
 target_pred: v
