@@ -443,7 +443,7 @@ class PLMSeqFeat(Feature):
     def __init__(self, plm_in_dim, plm_out_dim, **kwargs):
         super().__init__(dim=plm_out_dim)
 
-        self.layernorm = torch.nn.LayerNorm(plm_in_dim)
+        # self.layernorm = torch.nn.LayerNorm(plm_in_dim)
         self.linear = torch.nn.Linear(plm_in_dim, plm_out_dim)
         self.relu = torch.nn.ReLU()
 
@@ -451,7 +451,7 @@ class PLMSeqFeat(Feature):
         if "plm_emb" in batch:
             plm_embedding = batch["plm_emb"]
             plm_mask = (torch.sum(plm_embedding, dim=(-1, -2)) != 0).float()  # [b]
-            return self.relu(self.linear(self.layernorm(plm_embedding))) * plm_mask[..., None, None]  # [b, n, plm_dim]
+            return self.relu(self.linear(plm_embedding)) * plm_mask[..., None, None]  # [b, n, plm_dim]
         else:
             xt = batch["x_t"]  # [b, n, 3]
             b, n = xt.shape[0], xt.shape[1]

@@ -1,7 +1,7 @@
 # configurations for training
-task_prefix: "TRAIN"
-batch_size: 4  # batch size on single device
-epochs: 200
+task_prefix: IDROME_TRAIN
+batch_size: 8  # batch size on single device
+epochs: 500
 target_pred: v
 checkpoint_interval: 10  # save checkpoint every n epochs
 seed: 42
@@ -26,27 +26,27 @@ noise:
   p2: 1.0
 
 data:
-  data_dir: ./data/pdb_train/
-  plm_embed_dir: ./data/embedding/
+  data_dir: ./data/hybrid_train/
+  plm_emb_dir: ./data/hybrid_train/embedding/
   in_memory: False
-  format: "cif"
+  format: "pdb"
   overwrite: False
   batch_padding: True
   sampling_mode: "cluster-random"
   num_workers: 16 # Number of workers for dataloader
   pin_memory: True # Pin memory for dataloader
-  fraction: 0.0005
-  molecule_type: "protein"
-  experiment_types: ["diffraction", "EM"]
-  min_length: 20
+  fraction: 1.0
+  molecule_type: null
+  experiment_types: null 
+  min_length: null
   max_length: 256
   oligomeric_min: null
   oligomeric_max: null
-  best_resolution: 0.0
-  worst_resolution: 5.0
-  train_val_test: [0.98, 0.02]
+  best_resolution: null
+  worst_resolution: null
+  train_val_test: [0.99, 0.01]
   split_type: "sequence_similarity"
-  split_sequence_similarity: 0.5
+  split_sequence_similarity: 0.9
   overwrite_sequence_clusters: False
 
 model:
@@ -67,7 +67,7 @@ model:
   #   "chain_break_per_res", requires transform ChainBreakPerResidueTransform
   #   "x_sc"
   #   "fold_emb"
-  feats_init_seq: ["res_seq_pdb_idx", "chain_break_per_res", "x_sc"]  # Sequence features to include in initial representation
+  feats_init_seq: ["res_seq_pdb_idx", "chain_break_per_res"]  # Sequence features to include in initial representation
   feats_cond_seq: ["time_emb", "plm_emb"]  # Sequence features to include in conditioning variables
 
   # Parameters for the features we extract (both for sequence representatoin and conditioning vector)
@@ -82,7 +82,7 @@ model:
   #   "x_sc_pair_dists"
   #   "rel_seq_sep"
   #   "time_emb"
-  feats_pair_repr: ["rel_seq_sep", "x_sc_pair_dists", "xt_pair_dists"]  # Features to include in the pair representation
+  feats_pair_repr: ["rel_seq_sep", "xt_pair_dists"]  # Features to include in the pair representation
   feats_pair_cond: ["time_emb"]  # Features to include in the pair representation conditioning
 
   # Parameters for the pair features we extract
@@ -125,3 +125,4 @@ hydra:
   run:
     dir: .
   output_subdir: null
+

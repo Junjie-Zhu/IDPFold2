@@ -142,7 +142,7 @@ def main(args: DictConfig):
         logging.info(f"Model has {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
 
     if args.autoguidance_ratio > 0.0 and args.ag_dir is not None:
-        model_ag = model.copy()
+        model_ag = ProteinTransformerAF3(**args.model).to(device)
         checkpoint_ag = torch.load(args.ag_dir, map_location=device)
         if DIST_WRAPPER.world_size > 1:
             model_ag.module.load_state_dict(checkpoint_ag['model_state_dict'])

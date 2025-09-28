@@ -8,6 +8,7 @@ seed: 42
 deterministic: False
 logging_dir: "./logs"  # better absolute path, to revise
 ckpt_dir: null
+ag_dir: null  # path to the directory containing autoguidance model checkpoints, if any
 
 motif_conditioning: False
 self_conditioning: False
