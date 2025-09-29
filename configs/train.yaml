@@ -67,7 +67,7 @@ model:
   #   "chain_break_per_res", requires transform ChainBreakPerResidueTransform
   #   "x_sc"
   #   "fold_emb"
-  feats_init_seq: ["res_seq_pdb_idx", "chain_break_per_res"]  # Sequence features to include in initial representation
+  feats_init_seq: ["res_seq_pdb_idx", "chain_break_per_res", "plm_emb"]  # Sequence features to include in initial representation
   feats_cond_seq: ["time_emb", "plm_emb"]  # Sequence features to include in conditioning variables
 
   # Parameters for the features we extract (both for sequence representatoin and conditioning vector)
@@ -75,7 +75,7 @@ model:
   dim_cond: 512  # dimension of conditioning vector
   idx_emb_dim: 128  # dimension of the sequence position [0, 1, 2, ...] (if contiguous residues) embeddings
   plm_in_dim: 1280
-  plm_out_dim: 512
+  plm_out_dim: 256
 
   # List of all available sequence features:
   #   "xt_pair_dists"
@@ -102,7 +102,7 @@ model:
   seq_sep_dim: 127  # should be odd >= 5
   # Dimension of final pair representation
   pair_repr_dim: 256
-  num_registers: 10
+  num_registers: 8
   use_qkln: True
 
 optimizer:

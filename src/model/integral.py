@@ -271,6 +271,35 @@ def compute_fm_loss(
     return loss
 
 
+def compute_bond_loss(
+    x_1: torch.Tensor,
+    x_1_pred: torch.Tensor,
+    mask: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Computes and logs bond loss.
+
+    Args:
+        x_1: True clean sample, shape [*, n, 3].
+        x_1_pred: Predicted clean sample, shape [*, n, 3].
+        mask: Boolean residue mask, shape [*, nres].
+
+    Returns:
+        Bond loss.
+    """
+    pair_mask = mask[..., None] * mask[..., None, :]  # [*, n, n]
+
+    x_1_dist = torch.cdist(x_1, x_1)
+    x_1_pred_dist = torch.cdist(x_1_pred, x_1_pred)
+
+    distance_mask = x_1_dist < 30.0
+    pair_mask = pair_mask & distance_mask
+
+    err = (x_1_dist - x_1_pred_dist) ** 2  # [*, n, n, 3]
+    loss = torch.sum(err * pair_mask[..., None], dim=(-1, -2)) / torch.sum(pair_mask, dim=(-1, -2))  # [*]
+    return loss
+
+
 def training_predict(
     batch,
     flow_matching,
@@ -323,7 +352,8 @@ def training_predict(
 
     # loss
     fm_loss = compute_fm_loss(x_1, x_pred, t, mask)
-    return torch.mean(fm_loss)
+    bond_loss = compute_bond_loss(x_1, x_pred, mask)
+    return torch.mean(fm_loss + bond_loss)
 
 
 def generating_predict(

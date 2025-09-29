@@ -1,4 +1,3 @@
-import logging
 import os
 import warnings
 from typing import List, Optional, Union
@@ -19,6 +18,7 @@ from src.model.flow_matching.r3flow import R3NFlowMatcher
 from src.model.components.motif_factory import SingleMotifFactory
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
 from src.utils.pdb_utils import to_pdb_simple
+from src.utils.cluster_utils import log_info
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -97,14 +97,14 @@ def main(args: DictConfig):
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         all_gpu_ids = ",".join(str(x) for x in range(torch.cuda.device_count()))
         devices = os.getenv("CUDA_VISIBLE_DEVICES", all_gpu_ids)
-        logging.info(
+        log_info(
             f"LOCAL_RANK: {DIST_WRAPPER.local_rank} - CUDA_VISIBLE_DEVICES: [{devices}]"
         )
         torch.cuda.set_device(device)
     else:
         device = torch.device("cpu")
     if DIST_WRAPPER.world_size > 1:
-        logging.info(
+        log_info(
             f"Using DDP with {DIST_WRAPPER.world_size} processes, rank: {DIST_WRAPPER.rank}"
         )
         timeout_seconds = int(os.environ.get("NCCL_TIMEOUT_SECOND", 600))
@@ -138,8 +138,8 @@ def main(args: DictConfig):
     else:
         model.load_state_dict(checkpoint['model_state_dict'])
     if DIST_WRAPPER.rank == 0:
-        logging.info(f"Loaded checkpoint from {args.ckpt_dir}")
-        logging.info(f"Model has {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
+        log_info(f"Loaded checkpoint from {args.ckpt_dir}")
+        log_info(f"Model has {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
 
     if args.autoguidance_ratio > 0.0 and args.ag_dir is not None:
         model_ag = ProteinTransformerAF3(**args.model).to(device)
@@ -175,7 +175,7 @@ def main(args: DictConfig):
                     device=device,
                 )
             else:
-                logging.info(f"Split {inference_dict['nsamples']} samples into batches of {nsamples_per_batch} due to potential memory limit")
+                log_info(f"Split {inference_dict['nsamples']} samples into batches of {nsamples_per_batch} due to potential memory limit")
                 for i in range((args.nsamples - 1) // nsamples_per_batch + 1):
                     inference_dict["nsamples"] = min(nsamples_per_batch, args.nsamples - i * nsamples_per_batch)
                     pred_structure_batch = generating_predict(

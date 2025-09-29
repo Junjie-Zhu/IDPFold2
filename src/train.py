@@ -1,4 +1,3 @@
-import logging
 import os
 import warnings
 from random import random
@@ -22,6 +21,7 @@ from src.model.flow_matching.r3flow import R3NFlowMatcher
 from src.model.components.motif_factory import SingleMotifFactory
 from src.model.optimizer import get_optimizer, get_lr_scheduler
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
+from src.utils.cluster_utils import log_info
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -53,10 +53,10 @@ def main(args: DictConfig):
         device = torch.device("cpu")
     if DIST_WRAPPER.world_size > 1:
         if DIST_WRAPPER.rank == 0:
-            logging.info(
+            log_info(
                 f"LOCAL_RANK: {DIST_WRAPPER.local_rank} - CUDA_VISIBLE_DEVICES: [{devices}]"
             )
-            logging.info(
+            log_info(
                 f"Using DDP with {DIST_WRAPPER.world_size} processes, rank: {DIST_WRAPPER.rank}"
             )
         timeout_seconds = int(os.environ.get("NCCL_TIMEOUT_SECOND", 600))
@@ -64,7 +64,7 @@ def main(args: DictConfig):
             backend="nccl", timeout=datetime.timedelta(seconds=timeout_seconds)
         )
     else:
-        logging.info(
+        log_info(
             f"LOCAL_RANK: {DIST_WRAPPER.local_rank} - CUDA_VISIBLE_DEVICES: [{devices}]"
         )
 
@@ -74,28 +74,28 @@ def main(args: DictConfig):
         deterministic=args.deterministic,
     )
 
-    dataselector = PDBDataSelector(
-        data_dir=args.data.data_dir,
-        fraction=args.data.fraction,
-        molecule_type=args.data.molecule_type,
-        experiment_types=args.data.experiment_types,
-        min_length=args.data.min_length,
-        max_length=args.data.max_length,
-        oligomeric_min=args.data.oligomeric_min,
-        oligomeric_max=args.data.oligomeric_max,
-        best_resolution=args.data.best_resolution,
-        worst_resolution= args.data.worst_resolution,
-        has_ligands=[],
-        remove_ligands=[],
-        remove_non_standard_residues=True,
-        remove_pdb_unavailable=True,
-        exclude_ids=[]
-    ) if args.data.molecule_type is not None else None
+    # dataselector = PDBDataSelector(
+    #     data_dir=args.data.data_dir,
+    #     fraction=args.data.fraction,
+    #     molecule_type=args.data.molecule_type,
+    #     experiment_types=args.data.experiment_types,
+    #     min_length=args.data.min_length,
+    #     max_length=args.data.max_length,
+    #     oligomeric_min=args.data.oligomeric_min,
+    #     oligomeric_max=args.data.oligomeric_max,
+    #     best_resolution=args.data.best_resolution,
+    #     worst_resolution= args.data.worst_resolution,
+    #     has_ligands=[],
+    #     remove_ligands=[],
+    #     remove_non_standard_residues=True,
+    #     remove_pdb_unavailable=True,
+    #     exclude_ids=[]
+    # ) if args.data.molecule_type is not None else None
 
     # instantiate dataset
     data_module = PDBDataModule(
         data_dir=args.data.data_dir,
-        dataselector=dataselector,
+        dataselector=None,
         datasplitter=PDBDataSplitter(
             data_dir=args.data.data_dir,
             train_val_test=args.data.train_val_test,
@@ -109,12 +109,12 @@ def main(args: DictConfig):
         batch_padding=args.data.batch_padding,
         sampling_mode=args.data.sampling_mode,
         transforms=[GlobalRotationTransform(), ChainBreakPerResidueTransform()],
-        plm_embedding=args.data.plm_embed_dir,
+        plm_embedding=args.data.plm_emb_dir,
         batch_size=args.batch_size,
         num_workers=args.data.num_workers,
         pin_memory=args.data.pin_memory,
     )
-    data_module.prepare_data()
+    # data_module.prepare_data()
     data_module.setup()
     train_loader, val_loader = data_module.get_train_dataloader()
 
@@ -125,9 +125,9 @@ def main(args: DictConfig):
     nparam = sum(p.numel() for p in model.parameters() if p.requires_grad)
     if DIST_WRAPPER.world_size > 1:
         if DIST_WRAPPER.rank == 0:
-            logging.info(model)
-            logging.info(f"Model has {nparam / 1000000:.2f}M parameters")
-            logging.info("Using DDP")
+            log_info(model)
+            log_info(f"Model has {nparam / 1000000:.2f}M parameters")
+            log_info("Using DDP")
         model = DDP(
             model,
             device_ids=[DIST_WRAPPER.local_rank],
@@ -135,8 +135,8 @@ def main(args: DictConfig):
             static_graph=True,
         )
     else:
-        logging.info(model)
-        logging.info(f"Model has {nparam / 1000000:.2f}M parameters")
+        log_info(model)
+        log_info(f"Model has {nparam / 1000000:.2f}M parameters")
 
     if args.ema.decay > 0:
         ema_wrapper = EMAWrapper(
@@ -207,7 +207,7 @@ def main(args: DictConfig):
             )
             if check_iter >= 2:
                 break
-    logging.info(f"Sanity check done")
+    log_info(f"Sanity check done")
 
     if DIST_WRAPPER.rank == 0:
         with open(f"{logging_dir}/loss.csv", "w") as f:
