@@ -292,11 +292,11 @@ def compute_bond_loss(
     x_1_dist = torch.cdist(x_1, x_1)
     x_1_pred_dist = torch.cdist(x_1_pred, x_1_pred)
 
-    distance_mask = x_1_dist < 30.0
-    pair_mask = pair_mask & distance_mask
+    distance_mask = (x_1_dist < 10.0).float()
+    pair_mask = pair_mask * distance_mask
 
     err = (x_1_dist - x_1_pred_dist) ** 2  # [*, n, n, 3]
-    loss = torch.sum(err * pair_mask[..., None], dim=(-1, -2)) / torch.sum(pair_mask, dim=(-1, -2))  # [*]
+    loss = torch.sum(err * pair_mask, dim=(-1, -2)) / torch.sum(pair_mask, dim=(-1, -2))  # [*]
     return loss
 
 
@@ -352,8 +352,8 @@ def training_predict(
 
     # loss
     fm_loss = compute_fm_loss(x_1, x_pred, t, mask)
-    bond_loss = compute_bond_loss(x_1, x_pred, mask)
-    return torch.mean(fm_loss + bond_loss)
+    # bond_loss = compute_bond_loss(x_1, x_pred, mask)
+    return torch.mean(fm_loss)
 
 
 def generating_predict(

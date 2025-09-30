@@ -410,12 +410,20 @@ class PDBDataset(Dataset):
 
             graph = torch.load(self.data_dir / "processed" / fname, weights_only=False)
             if self.plm_embedding is not None:
-                plm_fname = '_'.join(fname.split('_')[:-1]) + '.pt'
+                fname_split = fname.split('_')
+                if len(fname_split) > 2:  # idrome entries
+                    plm_fname = '_'.join(fname_split[:-1]) + '.pt'
+                elif len(fname_split[0]) == 4:  # pdb entries
+                    plm_fname = fname
+                else:  # mdcath entries
+                    plm_fname = fname_split[0] + '_50.pt'
+
                 if os.path.isfile(self.plm_embedding / plm_fname):
                     plm_emb = torch.load(self.plm_embedding / plm_fname, weights_only=False)
+                    assert plm_emb.shape[0] == graph.coords.shape[0], f"{plm_fname}: shape assertion {plm_emb.shape} != {graph.coords.shape}"
                     graph.plm_emb = plm_emb
                 else:
-                    graph.plm_emb = torch.zeros((graph.coords.shape[0], 1280), dtype=torch.float32)  # dummy embedding
+                    raise KeyError(f"{plm_fname} not found in {self.plm_embedding}")
 
         # reorder coords to be in OpenFold and not PDB convention
         graph.coords = graph.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
