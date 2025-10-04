@@ -5,6 +5,13 @@ import torch.nn as nn
 import megablocks.ops as ops
 from src.model.protein_transformer import TransitionADALN
 
+_LOAD_BALANCING_LOSS = []
+
+
+def save_load_balancing_loss(loss):
+    global _LOAD_BALANCING_LOSS
+    _LOAD_BALANCING_LOSS.append(loss)
+
 
 class MoE(nn.Module):
     def __init__(
@@ -17,7 +24,7 @@ class MoE(nn.Module):
         expansion_factor=4,
         normalize_expert_weights=True,
         uniform_expert_assignment=True,
-
+        training=True,
     ):
         super().__init__()
         self.n_experts = n_experts
@@ -27,19 +34,21 @@ class MoE(nn.Module):
 
         self.dim_router_cond = dim_router_cond
 
-        self.experts = nn.ModuleList([
-            TransitionADALN(dim=dim, dim_cond=dim_cond, expansion_factor=expansion_factor)
-            for _ in range(n_experts)
-        ])  # expert_0 is shared, others are routed
+        self.shared_expert = TransitionADALN(dim=dim, dim_cond=dim_cond, expansion_factor=expansion_factor)
+        self.experts = Experts(n_experts, n_activated_experts, dim, dim_cond, expansion_factor, training=training)
 
         self.gate = nn.Sequential([
             nn.Linear(dim + dim_router_cond, n_experts - 1, bias=False),
             nn.Softmax(dim=-1),
         ])
+        self.training = training
 
-    def forward(self, x, cond, mask):
-        scores, expert_weights, expert_indices = self.router(x)
+    def forward(self, x, cond, mask, router_condition=None):
+        scores, expert_weights, expert_indices = self.router(x, router_condition)
 
+        x_shared = self.shared_expert(x, cond, mask)
+        x = x_shared + self.experts(x, cond, mask, scores, expert_weights, expert_indices)
+        return x
     
     def router(self, x, router_condition=None):
         if router_condition is not None and self.dim_router_cond > 0:
@@ -65,7 +74,7 @@ class MoE(nn.Module):
 
 
 class Experts(nn.Module):
-    def __init__(self, n_experts, n_activated_experts, dim, dim_cond, expansion_factor=4, add_bias=True, device='cpu'):
+    def __init__(self, n_experts, n_activated_experts, dim, dim_cond, expansion_factor=4, add_bias=True, device='cpu', training=True):
         super().__init__()
         self.n_experts = n_experts
         self.n_activated_experts = n_activated_experts
@@ -79,13 +88,16 @@ class Experts(nn.Module):
             self.register_parameter('bias', None)
 
         self.sort_end_bit = max(1, int(np.ceil(np.log2(self.n_experts))))
+        self.training = training
 
-    def forward(self, x, cond, mask):
+    def forward(self, x, cond, mask, scores, expert_weights, top_experts):
         b, n, d = x.shape
 
-        x, tokens_per_expert = self._single_forward(x, cond, mask, expert_weights, expert_indices)
+        x, tokens_per_expert = self._single_forward(x, cond, mask, expert_weights, top_experts)
 
-        # to implement load balancing loss
+        # load balancing loss
+        if self.training:
+            save_load_balancing_loss((tokens_per_expert, scores))
 
         x = x.view(b, n, d)
         if self.bias is not None:
@@ -153,7 +165,7 @@ class Experts(nn.Module):
             mask, indices, bins, expert_capacity, top_k)
 
         # Perform the expert computation.
-        for 
+        
 
         # Un-route the data for the MoE output.
         return ops.binned_scatter(
