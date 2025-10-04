@@ -14,7 +14,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.data.dataset import PDBDataModule, PDBDataSelector, PDBDataSplitter
 from src.data.transforms import GlobalRotationTransform, ChainBreakPerResidueTransform
-from src.model.integral import training_predict
+from src.model.integral import training_predict, generating_predict
 from src.model.protein_transformer import ProteinTransformerAF3
 from src.model.ema import EMAWrapper
 from src.model.flow_matching.r3flow import R3NFlowMatcher
@@ -22,6 +22,7 @@ from src.model.components.motif_factory import SingleMotifFactory
 from src.model.optimizer import get_optimizer, get_lr_scheduler
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
 from src.utils.cluster_utils import log_info
+from src.utils.pdb_utils import to_pdb_simple
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -36,6 +37,7 @@ def main(args: DictConfig):
             os.makedirs(args.logging_dir)
         os.makedirs(logging_dir)
         os.makedirs(os.path.join(logging_dir, "checkpoints"))  # for saving checkpoints
+        os.makedirs(os.path.join(logging_dir, "samples"))  # for saving samples
 
         # save current configuration in logging directory
         with open(f"{logging_dir}/config.yaml", "w") as f:
@@ -338,6 +340,46 @@ def main(args: DictConfig):
                     torch.save({
                         'model_state_dict': model.module.state_dict() if DIST_WRAPPER.world_size > 1 else model.state_dict(),
                     }, ema_path)
+
+                    # test generating
+                    inf_dict = {
+                        "dt": torch.Tensor([0.005]).to(device),
+                        "nsamples": 5,
+                        "plm_emb": val_dict["plm_emb"].squeeze(),
+                        "nres": val_dict["plm_emb"].shape[1],
+                    }
+                    pred_structure = generating_predict(
+                        batch=inf_dict,
+                        flow_matching=flow_matching,
+                        model=model,
+                        model_ag=None,
+                        motif_factory=None,
+                        target_pred=args.target_pred,
+                        guidance_weight=1.0,
+                        autoguidance_ratio=0.0,
+                        schedule_args={
+                            "schedule_mode": "log",
+                            "schedule_p": 2.0,
+                            },
+                        sampling_args={
+                            "sampling_mode": "vf",
+                            "sc_scale_noise": 0.0,
+                            "sc_scale_score": 0.0,
+                            "gt_mode": "1/t",
+                            "gt_p": 1.0,
+                            "gt_clamp_val": None,
+                            },
+                        motif_conditioning=False,
+                        self_conditioning=False,
+                        device=device,
+                    )
+                    # save pdb
+                    to_pdb_simple(
+                        atom_positions=pred_structure.squeeze() * 10,
+                        output_dir=os.path.join(logging_dir, "samples"),
+                        accession_code=f"val_{crt_epoch}",
+                    )
+
                     ema_wrapper.restore()
 
         torch.cuda.empty_cache()
