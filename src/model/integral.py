@@ -8,6 +8,7 @@ from scipy.spatial.transform import Rotation
 import torch
 import torch.nn as nn
 
+import src.model.components.moe_modules as moe_modules
 from src.common.atom37_constants import ATOM37_TO_ATOM14_INDICES, RESTYPE_TO_IDX, ATOM14_MASK
 
 nm_to_ang_scale = 10.0
@@ -300,15 +301,24 @@ def compute_bond_loss(
     return loss
 
 
+def compute_moe_loss(weight, num_layers, num_experts, top_k):
+    batched_loss = moe_modules.batched_load_balancing_loss(weight, num_layers, num_experts, top_k)
+    moe_modules.clear_load_balancing_loss()
+    return batched_loss
+
+
 def training_predict(
     batch,
     flow_matching,
     model: nn.Module,
     motif_factory: Optional[nn.Module],
+    moe_factory: Optional[nn.Module],
     noise_kwargs: dict,
     target_pred: str = 'x_1',
     motif_conditioning=False,
-    self_conditioning=False
+    moe_conditioning=False,
+    self_conditioning=False,
+    moe_loss_weight=0.0
 ):
     # get input data
     x_1, mask, batch_shape, n, dtype = extract_clean_sample(batch, flow_matching)
@@ -331,6 +341,9 @@ def training_predict(
     if motif_conditioning:
         batch.update(motif_factory(batch))
         x_1 = batch["x_1"]
+    
+    if moe_conditioning:
+        batch.update(moe_factory(batch))
 
     # interpolation
     x_t = flow_matching.interpolate(x_0, x_1, t)
@@ -352,8 +365,22 @@ def training_predict(
 
     # loss
     fm_loss = compute_fm_loss(x_1, x_pred, t, mask)
-    # bond_loss = compute_bond_loss(x_1, x_pred, mask)
-    return torch.mean(fm_loss)
+    fm_loss = torch.mean(fm_loss)
+    if moe_loss_weight != 0.0:
+        moe_loss = compute_moe_loss(
+            weight=moe_loss_weight,
+            num_layers=model.nlayers,
+            num_experts=model.n_experts,
+            top_k=model.top_k,
+        )
+    else:
+        moe_loss = 0.0
+
+    loss_dict = {
+        "fm_loss": fm_loss,
+        "moe_loss": moe_loss,
+    }
+    return fm_loss + moe_loss, loss_dict
 
 
 def generating_predict(

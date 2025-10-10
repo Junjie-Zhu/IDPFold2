@@ -21,6 +21,7 @@ from src.model.components.af3_modules import (
     AdaptiveLayerNormOutputScale,
     Transition,
 )
+from src.model.components.moe_modules import MoE
 
 
 class MultiHeadAttention(torch.nn.Module):
@@ -190,6 +191,13 @@ class MultiheadAttnAndTransition(torch.nn.Module):
         use_qkln,
         dropout=0.0,
         expansion_factor=4,
+        use_moe=False,
+        n_experts=5,
+        n_activated_experts=2,
+        dim_moe_cond=0,
+        capacity_factor=1.25,
+        normalize_expert_weights=True,
+        training=True
     ):
         super().__init__()
         self.parallel = parallel_mha_transition
@@ -210,9 +218,22 @@ class MultiheadAttnAndTransition(torch.nn.Module):
             use_qkln=use_qkln,
         )
 
-        self.transition = TransitionADALN(
-            dim=dim_token, dim_cond=dim_cond, expansion_factor=expansion_factor
-        )
+        if not use_moe:
+            self.transition = TransitionADALN(
+                dim=dim_token, dim_cond=dim_cond, expansion_factor=expansion_factor
+            )
+        else:
+            self.transition = MoE(
+                n_experts=n_experts,
+                n_activated_experts=n_activated_experts,
+                dim=dim_token,
+                dim_cond=dim_cond,
+                dim_router_cond=dim_moe_cond,
+                expansion_factor=expansion_factor,
+                capacity_factor=capacity_factor,
+                normalize_expert_weights=normalize_expert_weights,
+                training=training
+            )
 
     def _apply_mha(self, x, pair_rep, cond, mask):
         x_attn = self.mhba(x, pair_rep, cond, mask)
@@ -361,6 +382,9 @@ class ProteinTransformerAF3(torch.nn.Module):
             **kwargs,
         )
 
+        self.n_experts = kwargs["n_experts"]
+        self.top_k = kwargs["n_activated_experts"]
+
         # Trunk layers
         self.transformer_layers = torch.nn.ModuleList(
             [
@@ -374,6 +398,13 @@ class ProteinTransformerAF3(torch.nn.Module):
                     parallel_mha_transition=kwargs["parallel_mha_transition"],
                     use_attn_pair_bias=kwargs["use_attn_pair_bias"],
                     use_qkln=self.use_qkln,
+                    use_moe=kwargs["use_moe"],
+                    n_experts=self.n_experts,
+                    n_activated_experts=self.top_k,
+                    dim_moe_cond=kwargs["dim_moe_cond"],
+                    capacity_factor=kwargs["capacity_factor"],
+                    normalize_expert_weights=kwargs["normalize_expert_weights"],
+                    training=kwargs["training"],
                 )
                 for _ in range(self.nlayers)
             ]

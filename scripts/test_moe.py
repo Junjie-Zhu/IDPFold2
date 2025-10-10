@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 import megablocks.ops as ops
-from src.model.protein_transformer import TransitionADALN
+# from src.model.protein_transformer import TransitionADALN
 
 _LOAD_BALANCING_LOSS = []
 
@@ -34,7 +34,7 @@ class MoE(nn.Module):
 
         self.dim_router_cond = dim_router_cond
 
-        self.shared_expert = TransitionADALN(dim=dim, dim_cond=dim_cond, expansion_factor=expansion_factor)
+        self.shared_expert = nn.Linear(dim, dim, bias=False)
         self.experts = Experts(n_experts, n_activated_experts, dim, dim_cond, expansion_factor, training=training)
 
         self.gate = nn.Sequential([
@@ -79,8 +79,8 @@ class Experts(nn.Module):
         self.n_experts = n_experts
         self.n_activated_experts = n_activated_experts
 
-        self.expert = TransitionADALN(dim=dim, dim_cond=dim_cond, expansion_factor=expansion_factor)
-        
+        self.expert = nn.Linear(dim, dim, bias=False)
+
         if add_bias:
             self.bias = torch.nn.Parameter(torch.empty(dim,), device=device)  # maybe should add dtype
             torch.nn.init.zeros_(self.bias)
@@ -172,6 +172,23 @@ class Experts(nn.Module):
             x, indices, expert_weights, bins, top_k)
 
 
+if __name__ == '__main__':
+    moe = MoE(
+        n_experts=4,
+        n_activated_experts=2,
+        dim=128,
+        dim_cond=128,
+        dim_router_cond=0,
+        expansion_factor=4,
+        normalize_expert_weights=True,
+        uniform_expert_assignment=True,
+        training=True,
+    )
 
+    x = torch.randn(1, 64, 128)
+    cond = torch.randn(1, 64, 128)
+    mask = torch.ones(1, 64, dtype=torch.bool)
+
+    x = moe(x, cond, mask)
 
 
