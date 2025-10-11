@@ -1,21 +1,22 @@
 # configurations for inference
-plm_emb_dir: null  # path to the directory containing PLM embeddings, if any
-nres: [50, 100, 150, 200, 250]
+plm_emb_dir: null 
+nres: [50, 100, 150]
 nsamples: 100
-max_batch_length: 5000  # maximum length of the batch in terms of total residues, to avoid OOM
-dt: 0.0025
+max_batch_length: 20000
+dt: 0.005
+target_pred: v
 seed: 42
 deterministic: False
 logging_dir: "./logs"  # better absolute path, to revise
 ckpt_dir: null
-ag_dir: null  # path to the directory containing autoguidance model checkpoints, if any
+ag_dir: null
 
 motif_conditioning: False
 self_conditioning: False
 
 sampling:
-  sampling_mode: sc  # Options are: vf (plain fow matching) or sc (using score, where parameters below matter)
-  sc_scale_noise: 0.4  # scale used to multiply noise if mode == sc
+  sampling_mode: vf  # Options are: vf (plain fow matching) or sc (using score, where parameters below matter)
+  sc_scale_noise: 0.0  # scale used to multiply noise if mode == sc
   sc_scale_score: 1.0  # scale used to multiply score if mode == sc, not implemented yet
   gt_mode: "1/t"  # us, tan, or 1/t
   gt_p: 1.0  # float
@@ -28,13 +29,14 @@ schedule:
 guidance_weight: 1.0   # guidance model weights, 1.0 for w/o CFG and autoguidance, 0.0 for excluding the main model. We typically set this value greater than 1
 
 # Autoguidance
-autoguidance_ratio: 1.0   # a value between 0 and 1, determining the proportion of autoguidance v.s. classifier-free guidance, 1.0 for all autoguidance, 0.0 for all CFG
+autoguidance_ratio: 0.0   # a value between 0 and 1, determining the proportion of autoguidance v.s. classifier-free guidance, 1.0 for all autoguidance, 0.0 for all CFG
 autoguidance_ckpt_path: null
 
 model:
-  token_dim: 512  # dimension of the tokens in the sequence
-  nlayers: 10  # number of transformer layers
-  nheads: 8  # number of attn heads
+  training: True
+  token_dim: 768  # dimension of the tokens in the sequence
+  nlayers: 15  # number of transformer layers
+  nheads: 12  # number of attn heads
   residual_mha: True  # whether to use a residual connection in the mha
   residual_transition: True  # whether to use a residual connection in the transition
   parallel_mha_transition: False  # whether to compute mha and transition as parallel and add them up (AF3 style) or sequentially (normal transofrmers)
@@ -49,22 +51,22 @@ model:
   #   "chain_break_per_res", requires transform ChainBreakPerResidueTransform
   #   "x_sc"
   #   "fold_emb"
-  feats_init_seq: ["res_seq_pdb_idx", "chain_break_per_res", "x_sc"]  # Sequence features to include in initial representation
-  feats_cond_seq: ["time_emb", "plm_emb"]  # Sequence features to include in conditioning variables
+  feats_init_seq: ["res_seq_pdb_idx", "chain_break_per_res", "plm_emb", "res_type"]  # Sequence features to include in initial representation
+  feats_cond_seq: ["time_emb", "plm_emb", "res_type"]  # Sequence features to include in conditioning variables
 
   # Parameters for the features we extract (both for sequence representatoin and conditioning vector)
   t_emb_dim: 256  # dimension of the time embedding
   dim_cond: 512  # dimension of conditioning vector
   idx_emb_dim: 128  # dimension of the sequence position [0, 1, 2, ...] (if contiguous residues) embeddings
   plm_in_dim: 1280
-  plm_out_dim: 512
+  plm_out_dim: 256
 
   # List of all available sequence features:
   #   "xt_pair_dists"
   #   "x_sc_pair_dists"
   #   "rel_seq_sep"
   #   "time_emb"
-  feats_pair_repr: ["rel_seq_sep", "x_sc_pair_dists", "xt_pair_dists"]  # Features to include in the pair representation
+  feats_pair_repr: ["rel_seq_sep", "xt_pair_dists"]  # Features to include in the pair representation
   feats_pair_cond: ["time_emb"]  # Features to include in the pair representation conditioning
 
   # Parameters for the pair features we extract
@@ -83,9 +85,16 @@ model:
   # Relative sequence separation
   seq_sep_dim: 127  # should be odd >= 5
   # Dimension of final pair representation
-  pair_repr_dim: 256
+  pair_repr_dim: 512
   num_registers: 10
   use_qkln: True
+
+  use_moe: True
+  n_experts: 5
+  n_activated_experts: 2
+  dim_moe_cond: 0
+  capacity_factor: 1.3
+  normalize_expert_weights: True
 
 defaults:
   - _self_
@@ -96,3 +105,4 @@ hydra:
   run:
     dir: .
   output_subdir: null
+

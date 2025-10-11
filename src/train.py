@@ -197,15 +197,18 @@ def main(args: DictConfig):
             check_dict = to_device(check_dict, device)
 
             noise_kwargs = {**args.noise}
-            loss = training_predict(
+            loss, loss_dict = training_predict(
                 batch=check_dict,
                 flow_matching=flow_matching,
                 model=model,
                 motif_factory=motif_factory,
+                moe_factory=None,
                 noise_kwargs=noise_kwargs,
                 target_pred=args.target_pred,
                 motif_conditioning=args.motif_conditioning,
+                moe_conditioning=args.moe_conditioning,
                 self_conditioning=args.self_conditioning,
+                moe_loss_weight=args.loss.moe_loss_weight,
             )
             if check_iter >= 2:
                 break
@@ -246,15 +249,18 @@ def main(args: DictConfig):
                 ema_wrapper.update()
 
             noise_kwargs = {**args.noise}
-            loss = training_predict(
+            loss, loss_dict = training_predict(
                 batch=train_dict,
                 flow_matching=flow_matching,
                 model=model,
                 motif_factory=motif_factory,
+                moe_factory=None,
                 noise_kwargs=noise_kwargs,
                 target_pred=args.target_pred,
                 motif_conditioning=args.motif_conditioning,
+                moe_conditioning=args.moe_conditioning,
                 self_conditioning=args.self_conditioning,
+                moe_loss_weight=args.loss.moe_loss_weight,
             )
 
             optimizer.zero_grad(set_to_none=True)
@@ -267,7 +273,7 @@ def main(args: DictConfig):
 
             # Update the progress bar dynamically
             if DIST_WRAPPER.rank == 0:
-                train_iter.set_postfix(step_loss=f"{step_loss:.3f}")
+                train_iter.set_postfix(step_loss=f"{step_loss:.3f}", **loss_dict)
 
         # Calculate average epoch loss
         epoch_loss /= (crt_step + 1)
@@ -294,15 +300,18 @@ def main(args: DictConfig):
                 val_dict = to_device(val_dict, device)
 
                 noise_kwargs = {**args.noise}
-                val_loss = training_predict(
+                val_loss, val_loss_dict = training_predict(
                     batch=val_dict,
                     flow_matching=flow_matching,
                     model=model,
                     motif_factory=motif_factory,
+                    moe_factory=None,
                     noise_kwargs=noise_kwargs,
                     target_pred=args.target_pred,
                     motif_conditioning=args.motif_conditioning,
+                    moe_conditioning=args.moe_conditioning,
                     self_conditioning=args.self_conditioning,
+                    moe_loss_weight=args.loss.moe_loss_weight,
                 )
 
                 step_val_loss = val_loss.item()
@@ -310,7 +319,7 @@ def main(args: DictConfig):
 
                 # Update the validation progress bar dynamically
                 if DIST_WRAPPER.rank == 0:
-                    val_iter.set_postfix(val_loss=f"{step_val_loss:.3f}")
+                    val_iter.set_postfix(val_loss=f"{step_val_loss:.3f}", **val_loss_dict)
 
             if ema_wrapper is not None:
                 ema_wrapper.restore()

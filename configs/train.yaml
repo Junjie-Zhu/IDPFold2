@@ -9,6 +9,7 @@ deterministic: False
 logging_dir: "./logs"  # better absolute path, to revise
 
 motif_conditioning: False
+moe_conditioning: False
 self_conditioning: False
 
 resume:
@@ -24,6 +25,9 @@ noise:
   mode: mix_up02_beta
   p1: 1.9
   p2: 1.0
+
+loss:
+  moe_loss_weight: 0.1
 
 data:
   data_dir: ./data/hybrid_train/
@@ -50,9 +54,10 @@ data:
   overwrite_sequence_clusters: False
 
 model:
-  token_dim: 512  # dimension of the tokens in the sequence
-  nlayers: 10  # number of transformer layers
-  nheads: 8  # number of attn heads
+  training: True
+  token_dim: 768  # dimension of the tokens in the sequence
+  nlayers: 15  # number of transformer layers
+  nheads: 12  # number of attn heads
   residual_mha: True  # whether to use a residual connection in the mha
   residual_transition: True  # whether to use a residual connection in the transition
   parallel_mha_transition: False  # whether to compute mha and transition as parallel and add them up (AF3 style) or sequentially (normal transofrmers)
@@ -67,8 +72,8 @@ model:
   #   "chain_break_per_res", requires transform ChainBreakPerResidueTransform
   #   "x_sc"
   #   "fold_emb"
-  feats_init_seq: ["res_seq_pdb_idx", "chain_break_per_res", "plm_emb"]  # Sequence features to include in initial representation
-  feats_cond_seq: ["time_emb", "plm_emb"]  # Sequence features to include in conditioning variables
+  feats_init_seq: ["res_seq_pdb_idx", "chain_break_per_res", "plm_emb", "res_type"]  # Sequence features to include in initial representation
+  feats_cond_seq: ["time_emb", "plm_emb", "res_type"]  # Sequence features to include in conditioning variables
 
   # Parameters for the features we extract (both for sequence representatoin and conditioning vector)
   t_emb_dim: 256  # dimension of the time embedding
@@ -101,9 +106,16 @@ model:
   # Relative sequence separation
   seq_sep_dim: 127  # should be odd >= 5
   # Dimension of final pair representation
-  pair_repr_dim: 256
-  num_registers: 8
+  pair_repr_dim: 512
+  num_registers: 10
   use_qkln: True
+
+  use_moe: True
+  n_experts: 5
+  n_activated_experts: 2
+  dim_moe_cond: 0
+  capacity_factor: 1.3
+  normalize_expert_weights: True
 
 optimizer:
   lr: 0.0001

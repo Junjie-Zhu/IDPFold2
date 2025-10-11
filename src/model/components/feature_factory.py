@@ -523,7 +523,7 @@ class FeatureFactory(torch.nn.Module):
                 return MotifMaskSeqFeat(**kwargs)
             elif f == "plm_emb":
                 return PLMSeqFeat(**kwargs)
-            elif f == "restype":
+            elif f == "res_type":
                 return ResidueTypeSeqFeat(**kwargs)
             elif f == "chain_idx":
                 return ChainIdxSeqFeat(**kwargs)
