@@ -427,11 +427,20 @@ def generating_predict(
         moe_conditioning=moe_conditioning,
     )
 
-    nsamples = batch["nsamples"]
+    nsamples = batch["nsamples"].item() if isinstance(batch["nsamples"], torch.Tensor) else batch["nsamples"]
     nres = batch["nres"]
-    mask = batch["mask"].squeeze(0) if 'mask' in batch else torch.ones(nsamples, nres).long().bool().to(device)
-    plm_embedding = batch["plm_emb"].repeat(nsamples, 1, 1) if "plm_emb" in batch else None
-    residue_type = batch["residue_type"].repeat(nsamples, 1) if "residue_type" in batch else None
+    mask = batch["mask"] if 'mask' in batch else torch.ones(nsamples, nres).long().bool().to(device)
+    plm_embedding = batch["plm_emb"] if "plm_emb" in batch else None
+    residue_type = batch["residue_type"] if "residue_type" in batch else None
+
+    if len(mask.shape) == 1:
+        mask = mask.unsqueeze(0)
+        plm_embedding = plm_embedding.unsqueeze(0)
+        residue_type = residue_type.unsqueeze(0)
+
+    mask = mask.repeat(nsamples, 1)
+    plm_embedding = plm_embedding.repeat(nsamples, 1, 1)
+    residue_type = residue_type.repeat(nsamples, 1)
 
     return flow_matching.full_simulation(
         cleaned_conditioned_predict,

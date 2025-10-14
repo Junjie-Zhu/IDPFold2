@@ -354,9 +354,10 @@ def main(args: DictConfig):
                     inf_dict = {
                         "dt": torch.Tensor([0.005]).to(device),
                         "nsamples": 5,
-                        "plm_emb": val_dict["plm_emb"].squeeze(),
+                        "plm_emb": val_dict["plm_emb"][-1],
                         "nres": val_dict["plm_emb"].shape[1],
-                        "residue_type": val_dict["residue_type"].squeeze(),
+                        "residue_type": val_dict["residue_type"][-1],
+                        "mask": val_dict["mask"][-1],
                     }
                     pred_structure = generating_predict(
                         batch=inf_dict,
@@ -388,7 +389,7 @@ def main(args: DictConfig):
                     # save pdb
                     to_pdb_simple(
                         atom_positions=pred_structure.squeeze() * 10,
-                        residue_ids=val_dict["residue_type"].squeeze(),
+                        residue_ids=inf_dict["residue_type"].squeeze(),
                         output_dir=os.path.join(logging_dir, "samples"),
                         accession_code=f"val_{crt_epoch}",
                     )

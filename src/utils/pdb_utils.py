@@ -52,7 +52,7 @@ def to_pdb_simple(
     accession_code: str = None,
 ):
     n_samples, n_res, _ = atom_positions.shape
-    residue_types = [rc.IDX_TO_RESIDUE[STANDARD_AMINO_ACIDS[residue_ids[i].item()]] for i in range(n_res)]
+    residue_types = [rc.restype_1to3[STANDARD_AMINO_ACIDS[residue_ids[i].item()]] for i in range(n_res)]
 
     if accession_code is None:
         accession_code = f"samples_l{n_res}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"

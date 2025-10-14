@@ -400,7 +400,7 @@ class ResidueTypeSeqFeat(Feature):
         try:
             rpadmask = batch["mask_dict"]["residue_type"]  # [b, n] binary
         except:
-            rpadmask = torch.ones_like(rtype, dtype=torch.bool)
+            rpadmask = batch["mask"]  # [b, n] binary
         rtype = rtype * rpadmask  # [b, n], the -1 padding becomes 0
         rtype_onehot = F.one_hot(rtype, num_classes=20)  # [b, n, 20]
         rtype_onehot = (
