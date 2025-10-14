@@ -397,7 +397,10 @@ class ResidueTypeSeqFeat(Feature):
             "residue_type" in batch
         ), "`residue_type` not in batch, cannot compute ResidueTypeSeqFeat"
         rtype = batch["residue_type"]  # [b, n]
-        rpadmask = batch["mask_dict"]["residue_type"]  # [b, n] binary
+        try:
+            rpadmask = batch["mask_dict"]["residue_type"]  # [b, n] binary
+        except:
+            rpadmask = torch.ones_like(rtype, dtype=torch.bool)
         rtype = rtype * rpadmask  # [b, n], the -1 padding becomes 0
         rtype_onehot = F.one_hot(rtype, num_classes=20)  # [b, n, 20]
         rtype_onehot = (

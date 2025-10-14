@@ -190,14 +190,14 @@ class MultiheadAttnAndTransition(torch.nn.Module):
         use_attn_pair_bias,
         use_qkln,
         dropout=0.0,
-        expansion_factor=4,
+        expansion_factor=2,
         use_moe=False,
         n_experts=5,
         n_activated_experts=2,
         dim_moe_cond=0,
         capacity_factor=1.25,
         normalize_expert_weights=True,
-        training=True
+        load_balance=True,
     ):
         super().__init__()
         self.parallel = parallel_mha_transition
@@ -223,16 +223,18 @@ class MultiheadAttnAndTransition(torch.nn.Module):
                 dim=dim_token, dim_cond=dim_cond, expansion_factor=expansion_factor
             )
         else:
+            single_expert = TransitionADALN(
+                dim=dim_token, dim_cond=dim_cond, expansion_factor=expansion_factor
+            )
             self.transition = MoE(
                 n_experts=n_experts,
                 n_activated_experts=n_activated_experts,
+                expert=single_expert,
                 dim=dim_token,
-                dim_cond=dim_cond,
                 dim_router_cond=dim_moe_cond,
-                expansion_factor=expansion_factor,
                 capacity_factor=capacity_factor,
                 normalize_expert_weights=normalize_expert_weights,
-                training=training
+                load_balance=load_balance,
             )
 
     def _apply_mha(self, x, pair_rep, cond, mask):
@@ -404,7 +406,7 @@ class ProteinTransformerAF3(torch.nn.Module):
                     dim_moe_cond=kwargs["dim_moe_cond"],
                     capacity_factor=kwargs["capacity_factor"],
                     normalize_expert_weights=kwargs["normalize_expert_weights"],
-                    training=kwargs["training"],
+                    load_balance=kwargs["training"],
                 )
                 for _ in range(self.nlayers)
             ]

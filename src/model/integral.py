@@ -45,15 +45,20 @@ def conditioned_predict(
     model: nn.Module,
     model_ag: Optional[nn.Module] = None,
     motif_factory = Optional[nn.Module],
+    moe_factory = Optional[nn.Module],
     target_pred = 'x_1',
     guidance_weight = 1.0,
     autoguidance_ratio = 0.0,
-    motif_conditioning=False
+    motif_conditioning=False,
+    moe_conditioning=False,
 ):
     if motif_conditioning:
         assert ("fixed_structure_mask" not in batch or "x_motif" not in batch), \
             "Motif conditioning is not supported with fixed structure mask or x_motif in batch."
         batch.update(motif_factory(batch, zeroes=True))
+
+    if moe_conditioning:
+        batch.update(moe_factory(batch, zeroes=True))
 
     nn_out = model(batch)
     x_pred = prediction_to_x_clean(nn_out, batch, target_pred=target_pred)
@@ -367,18 +372,26 @@ def training_predict(
     fm_loss = compute_fm_loss(x_1, x_pred, t, mask)
     fm_loss = torch.mean(fm_loss)
     if moe_loss_weight != 0.0:
+        try:
+            n_layers = model.nlayers
+            n_experts = model.n_experts
+            top_k = model.top_k
+        except:
+            n_layers = model.module.nlayers
+            n_experts = model.module.n_experts
+            top_k = model.module.top_k
         moe_loss = compute_moe_loss(
             weight=moe_loss_weight,
-            num_layers=model.nlayers,
-            num_experts=model.n_experts,
-            top_k=model.top_k,
+            num_layers=n_layers,
+            num_experts=n_experts,
+            top_k=top_k,
         )
     else:
         moe_loss = 0.0
 
     loss_dict = {
-        "fm_loss": fm_loss,
-        "moe_loss": moe_loss,
+        "fm_loss": fm_loss.item(),
+        "moe_loss": moe_loss.item(),
     }
     return fm_loss + moe_loss, loss_dict
 
@@ -389,12 +402,14 @@ def generating_predict(
     model: nn.Module,
     model_ag: Optional[nn.Module] = None,
     motif_factory: Optional[nn.Module] = None,
+    moe_factory: Optional[nn.Module] = None,
     target_pred: str = 'x_1',
     guidance_weight = 1.0,
     autoguidance_ratio = 0.0,
     schedule_args: dict = None,
     sampling_args: dict = None,
     motif_conditioning = False,
+    moe_conditioning = False,
     self_conditioning = False,
     device = 'cpu'
 ):
@@ -404,16 +419,19 @@ def generating_predict(
         model=model,
         model_ag=model_ag,
         motif_factory=motif_factory,
+        moe_factory=moe_factory,
         target_pred=target_pred,
         guidance_weight=guidance_weight,
         autoguidance_ratio=autoguidance_ratio,
-        motif_conditioning=motif_conditioning
+        motif_conditioning=motif_conditioning,
+        moe_conditioning=moe_conditioning,
     )
 
     nsamples = batch["nsamples"]
     nres = batch["nres"]
     mask = batch["mask"].squeeze(0) if 'mask' in batch else torch.ones(nsamples, nres).long().bool().to(device)
-    plm_embedding = batch["plm_emb"] if "plm_emb" in batch else None
+    plm_embedding = batch["plm_emb"].repeat(nsamples, 1, 1) if "plm_emb" in batch else None
+    residue_type = batch["residue_type"].repeat(nsamples, 1) if "residue_type" in batch else None
 
     return flow_matching.full_simulation(
         cleaned_conditioned_predict,
@@ -422,6 +440,7 @@ def generating_predict(
         n=nres,
         self_cond=self_conditioning,
         plm_embedding=plm_embedding,
+        residue_type=residue_type,
         device=device,
         mask=mask,
         dtype=torch.float32,

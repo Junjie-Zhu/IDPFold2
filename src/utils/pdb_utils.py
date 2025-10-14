@@ -2,7 +2,7 @@ import os
 import string
 import datetime
 from collections import defaultdict
-from typing import Any
+from typing import Any, List
 
 import torch
 import biotite.structure.io.pdbx as pdbx
@@ -17,13 +17,43 @@ INT_TO_CHAIN = {
     i: chain_char for i, chain_char in enumerate(ALPHANUMERIC)
 }
 
+STANDARD_AMINO_ACIDS: List[str] = [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "Z",
+]
+
 
 def to_pdb_simple(
     atom_positions: torch.Tensor,
+    residue_ids: torch.Tensor,
     output_dir: str,
     accession_code: str = None,
 ):
     n_samples, n_res, _ = atom_positions.shape
+    residue_types = [rc.IDX_TO_RESIDUE[STANDARD_AMINO_ACIDS[residue_ids[i].item()]] for i in range(n_res)]
+
     if accession_code is None:
         accession_code = f"samples_l{n_res}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
@@ -32,7 +62,7 @@ def to_pdb_simple(
             f.write(f'MODEL {sample + 1}\n')
             for i in range(atom_positions.shape[1]):
                 atom_name = 'CA'
-                resname = 'ALA'
+                resname = residue_types[i]
                 chain_idx = 'A'
                 res_idx = i + 1
 

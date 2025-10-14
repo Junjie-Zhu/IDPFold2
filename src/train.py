@@ -356,6 +356,7 @@ def main(args: DictConfig):
                         "nsamples": 5,
                         "plm_emb": val_dict["plm_emb"].squeeze(),
                         "nres": val_dict["plm_emb"].shape[1],
+                        "residue_type": val_dict["residue_type"].squeeze(),
                     }
                     pred_structure = generating_predict(
                         batch=inf_dict,
@@ -363,6 +364,7 @@ def main(args: DictConfig):
                         model=model,
                         model_ag=None,
                         motif_factory=None,
+                        moe_factory=None,
                         target_pred=args.target_pred,
                         guidance_weight=1.0,
                         autoguidance_ratio=0.0,
@@ -379,12 +381,14 @@ def main(args: DictConfig):
                             "gt_clamp_val": None,
                             },
                         motif_conditioning=False,
+                        moe_conditioning=False,
                         self_conditioning=False,
                         device=device,
                     )
                     # save pdb
                     to_pdb_simple(
                         atom_positions=pred_structure.squeeze() * 10,
+                        residue_ids=val_dict["residue_type"].squeeze(),
                         output_dir=os.path.join(logging_dir, "samples"),
                         accession_code=f"val_{crt_epoch}",
                     )

@@ -1,9 +1,10 @@
+import copy
+
 import numpy as np
 import torch
 import torch.nn as nn
 
 import megablocks.ops as ops
-from src.model.protein_transformer import TransitionADALN
 
 _LOAD_BALANCING_LOSS = []
 
@@ -47,33 +48,30 @@ def batched_load_balancing_loss(moe_loss_weight, num_layers, num_experts, top_k)
 class MoE(nn.Module):
     def __init__(
         self, 
-        n_experts, 
-        n_activated_experts, 
-        dim, 
-        dim_cond, 
-        dim_router_cond=0,
-        expansion_factor=4,
-        capacity_factor=1.25,
-        normalize_expert_weights=True,
-        uniform_expert_assignment=False,
-        training=True,
+        n_experts: int, 
+        n_activated_experts: int, 
+        expert: nn.Module,
+        dim: int,
+        dim_router_cond: int = 0,
+        capacity_factor: float = 1.25,
+        normalize_expert_weights: bool = True,
+        load_balance: bool = True,
     ):
         super().__init__()
         self.n_experts = n_experts
         self.n_activated_experts = n_activated_experts
         self.normalize_expert_weights = normalize_expert_weights
-        self.uniform_expert_assignment = uniform_expert_assignment
 
         self.dim_router_cond = dim_router_cond
 
-        self.shared_expert = TransitionADALN(dim=dim, dim_cond=dim_cond, expansion_factor=expansion_factor)
-        self.experts = Experts(n_experts, n_activated_experts, capacity_factor, dim, dim_cond, expansion_factor, training=training)
+        self.shared_expert = expert
+        self.experts = Experts(n_experts, n_activated_experts, capacity_factor, expert, load_balance=load_balance)
 
         self.gate = nn.Sequential(
-            nn.Linear(dim + dim_router_cond, n_experts - 1, bias=False),
+            nn.Linear(dim + dim_router_cond, n_experts, bias=False),
             nn.Softmax(dim=-1),
         )
-        self.training = training
+        self.load_balance = load_balance
 
     def forward(self, x, cond, mask, router_condition=None):
         scores, expert_weights, expert_indices = self.router(x, router_condition)
@@ -94,8 +92,6 @@ class MoE(nn.Module):
         expert_weights, expert_indices = self._top_k(scores)
         if self.normalize_expert_weights:
             expert_weights = expert_weights / expert_weights.sum(dim=-1, keepdim=True)
-
-        expert_indices = self._uniform_expert_assignment(expert_indices) if self.uniform_expert_assignment else expert_indices
         return scores, expert_weights, expert_indices
 
     def _top_k(self, scores):
@@ -110,19 +106,25 @@ class MoE(nn.Module):
 
 
 class Experts(nn.Module):
-    def __init__(self, n_experts, n_activated_experts, capacity_factor, dim, dim_cond, expansion_factor=4, training=True):
+    def __init__(
+        self, 
+        n_experts: int, 
+        n_activated_experts: int, 
+        capacity_factor: float, 
+        expert: nn.Module, 
+        load_balance=True):
         super().__init__()
+
         self.n_experts = n_experts
         self.top_k = n_activated_experts
-        self.expert_capacity = capacity_factor
+        self.capacity_factor = capacity_factor
 
-        self.expert = nn.ModuleList(
-            TransitionADALN(dim=dim, dim_cond=dim_cond, expansion_factor=expansion_factor)
-            for _ in range(n_experts)
-        )
+        self.expert = nn.ModuleList()
+        for _ in range(n_experts):
+            self.expert.append(copy.deepcopy(expert))
         
         self.sort_end_bit = max(1, int(np.ceil(np.log2(self.n_experts))))
-        self.training = training
+        self.load_balance = load_balance
 
     def forward(self, x, cond, mask, scores, expert_weights, top_experts):
         b, n, d = x.shape
@@ -130,7 +132,7 @@ class Experts(nn.Module):
         x, tokens_per_expert = self._single_forward(x, cond, mask, expert_weights, top_experts)
 
         # load balancing loss
-        if self.training:
+        if self.load_balance:
             save_load_balancing_loss((tokens_per_expert, scores))
 
         x = x.view(b, n, d)
@@ -146,8 +148,8 @@ class Experts(nn.Module):
             # If expert_capacity is set to zero, set the number of tokens
             # per expert to the maximum we need to avoid dropping tokens.
             sl, bs, hs = x.size()
-            expert_capacity = self.expert_capacity(sl * bs)
-            expert_capacity = min(torch.max(tokens_per_expert).item(), expert_capacity)
+            capacity = self.expert_capacity(sl * bs)
+            capacity = min(torch.max(tokens_per_expert).item(), capacity)
 
         x = self.permute_and_compute(
             x,
@@ -156,7 +158,7 @@ class Experts(nn.Module):
             indices,
             expert_weights,
             bins,
-            expert_capacity,
+            capacity,
             self.top_k)
         return x, tokens_per_expert
 
@@ -202,7 +204,7 @@ class Experts(nn.Module):
             cond_i = cond[i, :, :]
             mask_i = mask[i, :, 0].squeeze(-1)
             x_out.append(self.expert[i](x_i, cond_i, mask_i))
-        x_out = torch.cat(x_out, dim=0)
+        x_out = torch.stack(x_out, dim=0)
 
         # Un-route the data for the MoE output.
         return ops.binned_scatter(

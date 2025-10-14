@@ -17,7 +17,7 @@ from src.model.protein_transformer import ProteinTransformerAF3
 from src.model.flow_matching.r3flow import R3NFlowMatcher
 from src.model.components.motif_factory import SingleMotifFactory
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
-from src.utils.pdb_utils import to_pdb_simple
+from src.utils.pdb_utils import to_pdb_simple, STANDARD_AMINO_ACIDS
 from src.utils.cluster_utils import log_info
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -29,18 +29,28 @@ class GenerationDataset(Dataset):
             self,
             dt: float = 0.005,
             nsamples: Union[int, List[int]] = 10,
+            fasta_path: Optional[str] = None,
             plm_emb_dir: Optional[str] = None,
             nres: Optional[List[int]] = None,
     ):
         super().__init__()
         self.dt = dt
-        self.use_plm = plm_emb_dir is not None
+        self.use_plm = fasta_path is not None
 
-        if self.use_plm:
-            self.data_paths = sorted(
-                [os.path.join(plm_emb_dir, f) for f in os.listdir(plm_emb_dir) if f.endswith('.pt')])
+        if self.use_plm and plm_emb_dir is not None: 
+            self.seqs = []
+            self.data_paths = []
+            with open(fasta_path, 'r') as f:
+                lines = f.readlines()
+                for line in lines:
+                    if line.startswith('>'):
+                        self.data_paths.append(os.path.join(plm_emb_dir, line[1:].strip() + '.pt'))
+                    else:
+                        self.seqs.append(get_resid(line.strip()))
+            
             self.nres = [None] * len(self.data_paths)  # Placeholder
         elif nres is not None:
+            self.seqs = [None] * len(nres)  # Placeholder
             self.data_paths = [None] * len(nres)  # Placeholder
             self.nres = [int(n) for n in nres]
         else:
@@ -66,14 +76,24 @@ class GenerationDataset(Dataset):
         }
 
         if self.use_plm:
+            assert os.path.isfile(self.data_paths[idx]), f"PLM embedding file {self.data_paths[idx]} not found."
             plm_emb = torch.load(self.data_paths[idx])
             data["nres"] = plm_emb.shape[0]
             data["plm_emb"] = plm_emb
             data["name"] = os.path.basename(self.data_paths[idx]).replace('.pt', '')
+            data["residue_type"] = self.seqs[idx]
         else:
             data["nres"] = self.nres[idx]
 
         return data
+
+
+def get_resid(seq: str):
+    res_id = torch.tensor(
+        [STANDARD_AMINO_ACIDS.index(res) for res in seq],
+        dtype=torch.long,
+    )
+    return res_id
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="inference")
@@ -121,6 +141,7 @@ def main(args: DictConfig):
     dataset = GenerationDataset(
         dt=args.dt,
         nsamples=args.nsamples,
+        fasta_path=args.fasta_path,
         plm_emb_dir=args.plm_emb_dir,
         nres=args.nres,
     )
@@ -200,6 +221,7 @@ def main(args: DictConfig):
 
             to_pdb_simple(
                 atom_positions=pred_structure * 10,  # nm to Angstrom
+                residue_ids=inference_dict["residue_type"],
                 output_dir=os.path.join(logging_dir, "samples"),
                 accession_code=inference_dict.get("name", [None])[0],
             )

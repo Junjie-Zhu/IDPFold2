@@ -1,4 +1,5 @@
 # configurations for inference
+fasta_path: null
 plm_emb_dir: null 
 nres: [50, 100, 150]
 nsamples: 100
@@ -12,6 +13,7 @@ ckpt_dir: null
 ag_dir: null
 
 motif_conditioning: False
+moe_conditioning: False
 self_conditioning: False
 
 sampling:
@@ -33,7 +35,7 @@ autoguidance_ratio: 0.0   # a value between 0 and 1, determining the proportion 
 autoguidance_ckpt_path: null
 
 model:
-  training: True
+  training: False
   token_dim: 768  # dimension of the tokens in the sequence
   nlayers: 15  # number of transformer layers
   nheads: 12  # number of attn heads
