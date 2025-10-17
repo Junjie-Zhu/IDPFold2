@@ -17,33 +17,6 @@ INT_TO_CHAIN = {
     i: chain_char for i, chain_char in enumerate(ALPHANUMERIC)
 }
 
-STANDARD_AMINO_ACIDS: List[str] = [
-    "A",
-    "B",
-    "C",
-    "D",
-    "E",
-    "F",
-    "G",
-    "H",
-    "I",
-    "J",
-    "K",
-    "L",
-    "M",
-    "N",
-    "P",
-    "Q",
-    "R",
-    "S",
-    "T",
-    "V",
-    "W",
-    "X",
-    "Y",
-    "Z",
-]
-
 
 def to_pdb_simple(
     atom_positions: torch.Tensor,
@@ -52,7 +25,7 @@ def to_pdb_simple(
     accession_code: str = None,
 ):
     n_samples, n_res, _ = atom_positions.shape
-    residue_types = [rc.restype_1to3[STANDARD_AMINO_ACIDS[residue_ids[i].item()]] for i in range(n_res)]
+    residue_types = [rc.restype_1to3[rc.restypes[residue_ids[i].item()]] for i in range(n_res)]
 
     if accession_code is None:
         accession_code = f"samples_l{n_res}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"

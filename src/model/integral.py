@@ -434,15 +434,14 @@ def generating_predict(
     residue_type = batch["residue_type"] if "residue_type" in batch else None
 
     if len(mask.shape) == 1:
-        mask = mask.unsqueeze(0)
+        mask = mask.unsqueeze(0).repeat(nsamples, 1)
         plm_embedding = plm_embedding.unsqueeze(0)
         residue_type = residue_type.unsqueeze(0)
 
-    mask = mask.repeat(nsamples, 1)
     plm_embedding = plm_embedding.repeat(nsamples, 1, 1)
     residue_type = residue_type.repeat(nsamples, 1)
 
-    return flow_matching.full_simulation(
+    pred_structure = flow_matching.full_simulation(
         cleaned_conditioned_predict,
         dt=batch["dt"].to(dtype=torch.float32),
         nsamples=nsamples,
@@ -465,6 +464,9 @@ def generating_predict(
         fixed_sequence_mask=None,  # not implemented yet
         fixed_structure_mask=None,  # not implemented yet
     )
+
+    moe_modules.clear_load_balancing_loss()
+    return pred_structure
 
 
 def mf_loss(u, u_target, mask, gamma=0.5, c=1e-3):

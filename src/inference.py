@@ -17,8 +17,9 @@ from src.model.protein_transformer import ProteinTransformerAF3
 from src.model.flow_matching.r3flow import R3NFlowMatcher
 from src.model.components.motif_factory import SingleMotifFactory
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
-from src.utils.pdb_utils import to_pdb_simple, STANDARD_AMINO_ACIDS
+from src.utils.pdb_utils import to_pdb_simple
 from src.utils.cluster_utils import log_info
+from src.common.residue_constants import restypes
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -90,7 +91,7 @@ class GenerationDataset(Dataset):
 
 def get_resid(seq: str):
     res_id = torch.tensor(
-        [STANDARD_AMINO_ACIDS.index(res) for res in seq],
+        [restypes.index(res) for res in seq],
         dtype=torch.long,
     )
     return res_id
