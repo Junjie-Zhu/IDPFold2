@@ -174,7 +174,7 @@ def main(args: DictConfig):
     # sanity check
     torch.cuda.empty_cache()
     model.eval()
-    with torch.no_grad():
+    with torch.inference_mode():
         for inference_iter, inference_dict in tqdm(enumerate(inference_loader)):
             torch.cuda.empty_cache()
             inference_dict = to_device(inference_dict, device)
