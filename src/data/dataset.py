@@ -10,6 +10,7 @@
 import os
 import pathlib
 from typing import Callable, Dict, List, Literal, Optional, Tuple, Union, Iterable
+from multiprocessing import Pool
 
 import pandas as pd
 import torch
@@ -633,11 +634,27 @@ class PDBDataModule():
             ]
 
         file_names = []
-        for tuple_ in tqdm(index_pdb_tuples, desc="Processing structures", unit="file"):
-            result = self._load_and_process_pdb(tuple_)
-            if result is not None:
-                file_names.append(result)
-        
+        if self.num_workers == 1:
+            for tuple_ in tqdm(index_pdb_tuples, desc="Processing structures", unit="file"):
+                result = self._load_and_process_pdb(tuple_)
+                if result is not None:
+                    file_names.append(result)
+        else:
+            logger.info(f"Processing structures with {self.num_workers} workers...")
+            chunksize = len(index_pdb_tuples) // self.num_workers + 1
+            with Pool(processes=self.num_workers) as pool:
+                results = list(
+                    tqdm(
+                        pool.imap_unordered(
+                            self._load_and_process_pdb, index_pdb_tuples, chunksize=chunksize
+                        ),
+                        total=len(index_pdb_tuples),
+                        desc="Processing structures",
+                        unit="file",
+                    )
+                )
+            file_names = [res for res in results if res is not None]
+
         logger.info("Completed processing.")
         return file_names
 
