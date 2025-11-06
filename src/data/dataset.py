@@ -11,6 +11,9 @@ import os
 import pathlib
 from typing import Callable, Dict, List, Literal, Optional, Tuple, Union, Iterable
 from multiprocessing import Pool
+import random
+import ast
+import pickle
 
 import pandas as pd
 import torch
@@ -341,9 +344,11 @@ class PDBDataset(Dataset):
         transform: Optional[Callable] = None,
         plm_embedding: str = None,
         format: Literal["mmtf", "pdb", "cif", "ent"] = "cif",
-        in_memory: bool = False,
         file_names: Optional[List[str]] = None,
         num_workers: int = 64,
+        complex_dir: Optional[str] = None,
+        complex_prop: float = 0.8,
+        crop_size: int = 256,
         train_all_atom: bool = False
     ):
         """
@@ -369,21 +374,39 @@ class PDBDataset(Dataset):
         self.format = format
         self.data_dir = pathlib.Path(data_dir)
         self.processed_dir = self.data_dir / "processed"
-        self.in_memory = in_memory
         self.file_names = file_names
         self.num_workers = num_workers
         self.transform = transform
         self.plm_embedding = pathlib.Path(plm_embedding)
         self.sequence_id_to_idx = None
+        self.complex_prop = complex_prop
+        self.crop_size = crop_size
         self.train_all_atom = train_all_atom
 
-        if self.in_memory:
-            logger.info("Reading data into memory")
-            self.data = [torch.load(self.processed_dir / f) for f in tqdm(file_names)]
+        if complex_dir.endswith('.csv'):
+            logger.info(f"Loading complex information from {complex_dir}...")
+            complex_df = pd.read_csv(complex_dir)
+            complex_df['residue_chain1'] = complex_df['residue_chain1'].apply(ast.literal_eval)
+            complex_df['residue_chain2'] = complex_df['residue_chain2'].apply(ast.literal_eval)
 
-            if self.plm_embedding is not None:
-                logger.info("Indexing sequence ids to data indices for PLM embedding loading")
-                self.plm_data = [torch.load(self.plm_embedding / ('_'.join(f.split('_')[:-1]) + '.pt')) for f in tqdm(file_names)]
+            d1 = self.prepare_data_for_lookup(complex_df, 'chain1', 'chain2',
+                                              'residue_chain1', 'residue_chain2')
+            d2 = self.prepare_data_for_lookup(complex_df, 'chain2', 'chain1',
+                                              'residue_chain2', 'residue_chain1')
+            combined_df = pd.concat([d1, d2])
+            self.complex_chains = combined_df.groupby('query_chain')['companion_info'].agg(list).to_dict()
+
+            # save the complex_chains
+            with open(self.data_dir / 'complex_chains.pkl', 'wb') as f:
+                pickle.dump(self.complex_chains, f)
+
+            del combined_df, d1, d2, complex_df
+            logger.info(f"Loaded complex information for {len(self.complex_chains)} chains.")
+        elif complex_dir.endswith('.pkl'):
+            logger.info(f"Loading complex information from {complex_dir}...")
+            with open(complex_dir, 'rb') as f:
+                self.complex_chains = pickle.load(f)
+            logger.info(f"Loaded complex information for {len(self.complex_chains)} chains.")
 
     def __len__(self):
         return len(self.file_names)
@@ -397,34 +420,59 @@ class PDBDataset(Dataset):
         Returns:
             Data: PyTorch Geometric Data object.
         """
-        if self.in_memory:
-            graph = self.data[idx]
-            if self.plm_embedding is not None:
-                graph.plm_emb = self.plm_data[idx]
+        if self.file_names is not None:
+            fname = f"{self.file_names[idx]}.pt"
+        elif self.chains is not None:
+            fname = f"{self.pdb_codes[idx]}_{self.chains[idx]}.pt"
         else:
-            if self.file_names is not None:
-                fname = f"{self.file_names[idx]}.pt"
-            elif self.chains is not None:
-                fname = f"{self.pdb_codes[idx]}_{self.chains[idx]}.pt"
+            fname = f"{self.pdb_codes[idx]}.pt"
+
+        graph, complex_avail = self.process_single_chain(fname)
+
+        # get multimer data, not available for in memory mode currently
+        if not complex_avail:
+            return self.continuous_crop(graph)
+
+        companion_chain, query_residues = self.get_companion(fname.replace('.pt', ''))
+        if random.random() < self.complex_prop and companion_chain is not None:
+            graph_companion, _ = self.process_single_chain(f"{companion_chain}.pt")
+            graph = self.concat_two_chains(graph, graph_companion)
+            graph = self.spatial_crop(graph, query_residues)
+        else:
+            graph = self.continuous_crop(graph)
+        return graph
+
+    def get_companion(self, query_chain_id):
+        companion = self.complex_chains.get(query_chain_id)
+        if companion:
+            companion = random.choice(companion)
+            return companion['companion_chain'], companion['query_residues']
+        else:
+            return None, None
+
+    def get_embedding_name(self, fname):
+        fname_split = fname.split('_')
+        complex_avail = False
+        if len(fname_split) > 2:  # idrome entries
+            plm_fname = '_'.join(fname_split[:-1]) + '_f0.pt'
+        elif len(fname_split[0]) == 4:  # pdb entries
+            plm_fname = fname
+            complex_avail = True
+        else:  # mdcath entries
+            plm_fname = fname_split[0] + '.pt'
+        return plm_fname, complex_avail
+
+    def process_single_chain(self, fname):
+        graph = torch.load(self.data_dir / "processed" / fname, weights_only=False)
+        if self.plm_embedding is not None:
+            plm_fname, complex_avail = self.get_embedding_name(fname)
+            if os.path.isfile(self.plm_embedding / plm_fname):
+                plm_emb = torch.load(self.plm_embedding / plm_fname, weights_only=False)
+                assert plm_emb.shape[0] == graph.coords.shape[
+                    0], f"{plm_fname}: shape assertion {plm_emb.shape} != {graph.coords.shape}"
+                graph.plm_emb = plm_emb
             else:
-                fname = f"{self.pdb_codes[idx]}.pt"
-
-            graph = torch.load(self.data_dir / "processed" / fname, weights_only=False)
-            if self.plm_embedding is not None:
-                fname_split = fname.split('_')
-                if len(fname_split) > 2:  # idrome entries
-                    plm_fname = '_'.join(fname_split[:-1]) + '.pt'
-                elif len(fname_split[0]) == 4:  # pdb entries
-                    plm_fname = fname
-                else:  # mdcath entries
-                    plm_fname = fname_split[0] + '_50.pt'
-
-                if os.path.isfile(self.plm_embedding / plm_fname):
-                    plm_emb = torch.load(self.plm_embedding / plm_fname, weights_only=False)
-                    assert plm_emb.shape[0] == graph.coords.shape[0], f"{plm_fname}: shape assertion {plm_emb.shape} != {graph.coords.shape}"
-                    graph.plm_emb = plm_emb
-                else:
-                    raise KeyError(f"{plm_fname} not found in {self.plm_embedding}")
+                raise KeyError(f"{plm_fname} not found in {self.plm_embedding}")
 
         # reorder coords to be in OpenFold and not PDB convention
         graph.coords = graph.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
@@ -432,40 +480,93 @@ class PDBDataset(Dataset):
 
         if self.transform:
             graph = self.transform(graph)
-        graph = continuous_crop(graph, crop_size=256)
+        return graph, complex_avail
 
+    def concat_two_chains(self, chain1, chain2):
+        chain2.chains += 1
+
+        # assume two chains have the same keys
+        for k in chain1.keys():
+            if 'bfactor' in k:
+                continue
+            value1 = chain1[k]
+            value2 = chain2[k]
+            if torch.is_tensor(value1):
+                chain1[k] = torch.cat([value1, value2], dim=0)
+            elif isinstance(value1, list):
+                chain1[k] = value1 + value2
+            else:
+                continue
+        return chain1
+
+    def spatial_crop(self, graph, central_residues):
+        n_res = graph.coords.shape[0]
+        if n_res <= self.crop_size:
+            return graph
+
+        ca_coords = graph.coords[:, 1, :].squeeze()
+
+        central_residue_id = random.choice(central_residues)
+        central_coord = ca_coords[central_residue_id, :]
+
+        # calculate distances from central residue to all other residues
+        distances = torch.norm(ca_coords - central_coord, dim=1)
+
+        # get the minimal set of residues within crop_size
+        sorted_distances, sorted_indices = torch.sort(distances)
+        selected_indices = sorted_indices[:self.crop_size]
+
+        # only reserve the selected residues in the graph
+        for k, v in graph.items():
+            if 'bfactor' in k:
+                continue
+            if torch.is_tensor(v):
+                graph[k] = v[selected_indices]
+            elif isinstance(v, list):
+                graph[k] = [v[i] for i in selected_indices.tolist()]
+            else:
+                continue
         return graph
 
+    def continuous_crop(self, graph):
+        """Crop a graph to a fixed size using continuous cropping.
 
-def continuous_crop(graph, crop_size):
-    """Crop a graph to a fixed size using continuous cropping.
+        Args:
+            graph (Data): PyTorch Geometric Data object.
+            crop_size (int): Size to crop the graph to.
 
-    Args:
-        graph (Data): PyTorch Geometric Data object.
-        crop_size (int): Size to crop the graph to.
+        Returns:
+            Data: Cropped PyTorch Geometric Data object.
+        """
+        n_res = graph.coords.shape[0]
+        if n_res <= self.crop_size:
+            return graph
 
-    Returns:
-        Data: Cropped PyTorch Geometric Data object.
-    """
-    n_res = graph.coords.shape[0]
-    if n_res <= crop_size:
-        return graph
+        start = torch.randint(0, n_res - self.crop_size + 1, (1,)).item()
+        end = start + self.crop_size
 
-    start = torch.randint(0, n_res - crop_size + 1, (1,)).item()
-    end = start + crop_size
+        mask = torch.zeros(n_res, dtype=torch.bool)
+        mask[start:end] = True
 
-    mask = torch.zeros(n_res, dtype=torch.bool)
-    mask[start:end] = True
+        cropped_graph = Data()
+        for key, item in graph:
+            if torch.is_tensor(item) and len(item.shape) >= 1:
+                cropped_graph[key] = item[mask]
+            elif isinstance(item, list) and len(item) == n_res:
+                cropped_graph[key] = item[start:end]
+            else:
+                cropped_graph[key] = item
+        return cropped_graph
 
-    cropped_graph = Data()
-    for key, item in graph:
-        if torch.is_tensor(item) and len(item.shape) >= 1:
-            cropped_graph[key] = item[mask]
-        elif isinstance(item, list) and len(item) == n_res:
-            cropped_graph[key] = item[start:end]
-        else:
-            cropped_graph[key] = item
-    return cropped_graph
+    @staticmethod
+    def prepare_data_for_lookup(df, query_col, companion_col, query_res_col, companion_res_col):
+        df_temp = df.rename(columns={
+            query_col: 'query_chain', companion_col: 'companion_chain',
+            query_res_col: 'query_residues', companion_res_col: 'companion_residues'
+        })
+        records = df_temp[['companion_chain', 'query_residues', 'companion_residues']].to_dict('records')
+        df_temp['companion_info'] = records
+        return df_temp[['query_chain', 'companion_info']]
 
 
 class PDBDataModule():
@@ -474,7 +575,6 @@ class PDBDataModule():
         data_dir: Optional[str] = None,
         dataselector: Optional[Dict] = None,
         datasplitter: Optional[PDBDataSplitter] = None,
-        in_memory: bool = False,
         format: Literal["mmtf", "pdb", "cif", "ent"] = "cif",
         overwrite: bool = False,
         store_het: bool = False,
@@ -486,6 +586,9 @@ class PDBDataModule():
         batch_size: int = 32,
         num_workers: int = 32,
         pin_memory: bool = False,
+        crop_size: int = 256,
+        complex_prop: float = 0.8,
+        complex_dir: Optional[str] = None,
     ):
         super().__init__()
         self.data_dir = pathlib.Path(data_dir)
@@ -498,7 +601,6 @@ class PDBDataModule():
         self.sampling_mode = sampling_mode
         self.format = format
         self.overwrite = overwrite
-        self.in_memory = in_memory
         self.store_het = store_het
         self.store_bfactor = store_bfactor
         self.df_data = None
@@ -513,6 +615,9 @@ class PDBDataModule():
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        self.crop_size = crop_size if crop_size > 0 else 1e5
+        self.complex_prop = complex_prop
+        self.complex_dir = complex_dir
 
     def setup(self):
         if not self.df_data:
@@ -795,9 +900,11 @@ class PDBDataModule():
             transform=self.transform,
             plm_embedding=self.plm_embedding,
             format=self.format,
-            in_memory=self.in_memory,
             file_names=file_names,
             num_workers=self.num_workers,
+            complex_dir=self.complex_dir,
+            complex_prop=self.complex_prop,
+            crop_size=self.crop_size,
         )
 
     def _get_dataloader(

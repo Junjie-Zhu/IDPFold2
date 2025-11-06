@@ -3,6 +3,7 @@ from typing import Dict, List, Literal
 import torch
 import torch.nn.functional as F
 from loguru import logger
+from torch import nn
 from torch_scatter import scatter_mean
 
 from src.utils.idx_emb_utils import get_index_embedding, get_time_embedding
@@ -144,196 +145,28 @@ class TimeEmbeddingPairFeat(Feature):
         return t_emb.expand((t_emb.shape[0], n, n, t_emb.shape[3]))  # [b, n, t_emb_dim]
 
 
-class TimeIntervalEmbeddingSeqFeat(Feature):
-    """Computes time interval embedding and returns as sequence feature of shape [b, n, t_emb_dim]."""
+class RelativePositionPairFeat(Feature):
+    """Computes relative position for residue and chain ids"""
 
-    def __init__(self, t_emb_dim, **kwargs):
-        super().__init__(dim=t_emb_dim)
-
-    def forward(self, batch):
-        t = batch["t"]  # [b]
-        r = batch["r"]
-        xt = batch["x_t"]  # [b, n, 3]
-        n = xt.shape[1]
-        t_emb = get_time_interval_embedding(t - r, edim=self.dim)  # [b, t_emb_dim]
-        t_emb = t_emb[:, None, :]  # [b, 1, t_emb_dim]
-        return t_emb.expand((t_emb.shape[0], n, t_emb.shape[2]))  # [b, n, t_emb_dim]
-
-
-class TimeIntervalEmbeddingPairFeat(Feature):
-    """Computes time interval embedding and returns as pair feature of shape [b, n, n, t_emb_dim]."""
-
-    def __init__(self, t_emb_dim, **kwargs):
-        super().__init__(dim=t_emb_dim)
+    def __init__(self, rel_pos_dim, r_max, **kwargs):
+        super().__init__(dim=rel_pos_dim)
+        self.r_max = r_max
+        self.LinearNoBias = nn.Linear(rel_pos_dim, 2 + 2 * (r_max + 1), bias=False)
 
     def forward(self, batch):
-        t = batch["t"]  # [b]
-        r = batch["r"]
-        xt = batch["x_t"]  # [b, n, 3]
-        n = xt.shape[1]
-        t_emb = get_time_interval_embedding(t - r, edim=self.dim)  # [b, t_emb_dim]
-        t_emb = t_emb[:, None, None, :]  # [b, 1, 1, t_emb_dim]
-        return t_emb.expand((t_emb.shape[0], n, n, t_emb.shape[3]))  # [b, n, n, t_emb_dim]
+        residue_idx = batch["residue_idx_pdb"]  # [b, n]
+        chain_idx = batch["chains"]  # [b, n]
 
+        same_chain_mask = (chain_idx[:, :, None] == chain_idx[:, None, :]).long()  # [b, n, n]
+        rel_pos_chain = F.one_hot(same_chain_mask, 2)  # [b, n, n, 2]
 
-class IdxEmbeddingSeqFeat(Feature):
-    """Computes index embedding and returns sequence feature of shape [b, n, idx_emb]."""
-
-    def __init__(self, idx_emb_dim, **kwargs):
-        super().__init__(dim=idx_emb_dim)
-
-    def forward(self, batch):
-        # If it has the actual residue indices
-        if "residue_pdb_idx" in batch:
-            inds = batch["residue_pdb_idx"]  # [b, n]
-            inds = indices_force_start_w_one(inds, batch["mask"])
-        else:
-            self.assert_defaults_allowed(batch, "Residue index sequence")
-            xt = batch["x_t"]  # [b, n, 3]
-            b, n = xt.shape[0], xt.shape[1]
-            inds = torch.Tensor([[i + 1 for i in range(n)] for _ in range(b)]).to(
-                xt.device
-            )  # [b, n]
-        return get_index_embedding(inds, edim=self.dim)  # [b, n, idx_embed_dim]
-
-
-class ChainBreakPerResidueSeqFeat(Feature):
-    """Computes a 1D sequence feature indicating if a residue is followed by a chain break, shape [b, n, 1]."""
-
-    def __init__(self, **kwargs):
-        super().__init__(dim=1)
-
-    def forward(self, batch):
-        # If it has the actual chain breaks
-        if "chain_breaks_per_residue" in batch:
-            chain_breaks = batch["chain_breaks_per_residue"] * 1.0  # [b, n]
-        else:
-            self.assert_defaults_allowed(batch, "Chain break sequence")
-            xt = batch["x_t"]  # [b, n, 3]
-            b, n = xt.shape[0], xt.shape[1]
-            chain_breaks = torch.zeros((b, n), device=xt.device) * 1.0  # [b, n]
-        return chain_breaks[..., None]  # [b, n, 1]
-
-
-class XscSeqFeat(Feature):
-    """Computes feature from self conditioning coordinates, seq feature of shape [b, n, 3]."""
-
-    def __init__(self, **kwargs):
-        super().__init__(dim=3)
-
-    def forward(self, batch):
-        if "x_sc" in batch:
-            return batch["x_sc"]  # [b, n, 3]
-        else:
-            # If we do not provide self-conditioning as input to the nn
-            x = batch["x_t"]
-            b, n = x.shape[0], x.shape[1]
-            return torch.zeros(b, n, 3, device=x.device)
-
-
-class MotifX1SeqFeat(Feature):
-    """Computes feature from motif coordinates if present, seq feature of shape [b, n, 3]."""
-
-    def __init__(self, **kwargs):
-        super().__init__(dim=3)
-
-    def forward(self, batch):
-        if "x_motif" in batch:
-            return batch["x_motif"]  # [b, n, 3]
-        else:
-            # If no motif
-            x = batch["x_t"]
-            b, n = x.shape[0], x.shape[1]
-            device = x.device
-            return torch.zeros(b, n, 3, device=device)
-
-
-class MotifMaskSeqFeat(Feature):
-    """Computes feature from mask of the motif positions if present, seq feature of shape [b, n, 3]."""
-
-    def __init__(self, **kwargs):
-        super().__init__(dim=1)
-
-    def forward(self, batch):
-        if "motif_mask" in batch:
-            return batch["motif_mask"].unsqueeze(-1)  # [b, n, 1]
-        else:
-            # If no motif
-            x = batch["x_t"]
-            b, n = x.shape[0], x.shape[1]
-            device = x.device
-            return torch.zeros(b, n, device=device).unsqueeze(-1)
-
-
-class MotifStructureMaskFeat(Feature):
-    """Computes feature of the pair wise motif mask of shape [b, n, n, seq_sep_dim]."""
-
-    def __init__(self, **kwargs):
-        super().__init__(dim=1)
-
-    def forward(self, batch):
-        if "fixed_structure_mask" in batch:
-            # no need to force 1 since taking difference
-            mask = batch["fixed_structure_mask"].unsqueeze(-1)  # [b, n]
-        else:
-            raise ValueError("No fixed_structure_mask")
-        return mask
-
-
-class MotifX1PairwiseDistancesPairFeat(Feature):
-    """Computes pairwise distances for CA backbone atoms of motif atoms and returns feature of shape [b, n, n, dim_pair_dist]."""
-
-    def __init__(
-            self, x_motif_pair_dist_dim, x_motif_pair_dist_min, x_motif_pair_dist_max, **kwargs
-    ):
-        super().__init__(dim=x_motif_pair_dist_dim)
-        self.min_dist = x_motif_pair_dist_min
-        self.max_dist = x_motif_pair_dist_max
-
-    def forward(self, batch):
-        assert ("x_motif" in batch)
-        assert ("fixed_structure_mask" in batch)
-        return bin_pairwise_distances(
-            x=batch["x_motif"],
-            min_dist=self.min_dist,
-            max_dist=self.max_dist,
-            dim=self.dim,
-        ) * batch["fixed_structure_mask"].unsqueeze(-1)  # [b, n, n, pair_dist_dim]
-
-
-class SequenceSeparationPairFeat(Feature):
-    """Computes sequence separation and returns feature of shape [b, n, n, seq_sep_dim]."""
-
-    def __init__(self, seq_sep_dim, **kwargs):
-        super().__init__(dim=seq_sep_dim)
-
-    def forward(self, batch):
-        if "residue_pdb_idx" in batch:
-            # no need to force 1 since taking difference
-            inds = batch["residue_pdb_idx"]  # [b, n]
-        else:
-            self.assert_defaults_allowed(batch, "Relative sequence separation pair")
-            xt = batch["x_t"]  # [b, n, 3]
-            b, n = xt.shape[0], xt.shape[1]
-            inds = torch.Tensor([[i + 1 for i in range(n)] for _ in range(b)]).to(
-                xt.device
-            )  # [b, n]
-
-        seq_sep = inds[:, :, None] - inds[:, None, :]  # [b, n, n]
-
-        # Dimension should be odd, bins limits [-(dim/2-1), ..., -1.5, -0.5, 0.5, 1.5, ..., dim/2-1]
-        # gives dim-2 bins, and the first and last for values beyond the bin limits
-        assert (
-                self.dim % 2 == 1
-        ), "Relative seq separation feature dimension must be odd and > 3"
-
-        # Create bins limits [..., -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.3, 3.5, ...]
-        # Equivalent to binning relative sequence separation
-        low = -(self.dim / 2.0 - 1)
-        high = self.dim / 2.0 - 1
-        bin_limits = torch.linspace(low, high, self.dim - 1, device=inds.device)
-
-        return bin_and_one_hot(seq_sep, bin_limits)  # [b, n, n, seq_sep_dim]
+        d_residue = torch.clip(
+            input=residue_idx[:, :, None] - residue_idx[:, None, :] + self.r_max,
+            min=0, max=2 * self.r_max,
+        ) * same_chain_mask + (1 - same_chain_mask) * (2 * self.r_max + 1)  # [b, n, n]
+        rel_pos_residue = F.one_hot(d_residue.long(), 2 * (self.r_max + 1))  # [b, n, n, 2 * (r_max + 1)]
+        rel_pos = torch.cat([rel_pos_chain, rel_pos_residue], dim=-1)  # [b, n, n, 2 + 2 * (r_max + 1)]
+        return self.LinearNoBias(rel_pos.float())  # [b, n, n, rel_pos_dim]
 
 
 class XtPairwiseDistancesPairFeat(Feature):
@@ -351,31 +184,6 @@ class XtPairwiseDistancesPairFeat(Feature):
             max_dist=self.max_dist,
             dim=self.dim,
         )  # [b, n, n, pair_dist_dim]
-
-
-class XscPairwiseDistancesPairFeat(Feature):
-    """Computes pairwise distances and returns feature of shape [b, n, n, dim_pair_dist]."""
-
-    def __init__(
-            self, x_sc_pair_dist_dim, x_sc_pair_dist_min, x_sc_pair_dist_max, **kwargs
-    ):
-        super().__init__(dim=x_sc_pair_dist_dim)
-        self.min_dist = x_sc_pair_dist_min
-        self.max_dist = x_sc_pair_dist_max
-
-    def forward(self, batch):
-        if "x_sc" in batch:
-            return bin_pairwise_distances(
-                x=batch["x_sc"],
-                min_dist=self.min_dist,
-                max_dist=self.max_dist,
-                dim=self.dim,
-            )  # [b, n, n, pair_dist_dim]
-        else:
-            # If we do not provide self-conditioning as input to the nn
-            x = batch["x_t"]
-            b, n = x.shape[0], x.shape[1]
-            return torch.zeros(b, n, n, self.dim, device=x.device)
 
 
 class ResidueTypeSeqFeat(Feature):
@@ -407,37 +215,6 @@ class ResidueTypeSeqFeat(Feature):
             rtype_onehot * rpadmask[..., None]
         )
         return rtype_onehot * 1.0
-
-
-class ChainIdxSeqFeat(Feature):
-    """Gets chain idx feature (-1 for padding) and returns feature of shape [b, n, 1]."""
-
-    def __init__(self, **kwargs):
-        super().__init__(dim=1)
-
-    def forward(self, batch):
-        if "chains" in batch:
-            mask = batch["chains"].unsqueeze(-1)  # [b, n, 1]
-        else:
-            raise ValueError("chains")
-        return mask
-
-
-class ChainIdxPairFeat(Feature):
-    """Gets chain idx feature (-1 for padding) and returns feature of shape [b, n, n, 1]."""
-
-    def __init__(self, **kwargs):
-        super().__init__(dim=1)
-
-    def forward(self, batch):
-        if "chains" in batch:
-            seq_mask = batch["chains"]  # [b, n]
-            mask = torch.einsum("bi,bj->bij", seq_mask, seq_mask).unsqueeze(
-                -1
-            )  # [b, n, n, 1]
-        else:
-            raise ValueError("chains")
-        return mask
 
 
 class PLMSeqFeat(Feature):
@@ -514,45 +291,20 @@ class FeatureFactory(torch.nn.Module):
         if self.mode == "seq":
             if f == "time_emb":
                 return TimeEmbeddingSeqFeat(**kwargs)
-            elif f == "res_seq_pdb_idx":
-                return IdxEmbeddingSeqFeat(**kwargs)
-            elif f == "chain_break_per_res":
-                return ChainBreakPerResidueSeqFeat(**kwargs)
-            elif f == "x_sc":
-                return XscSeqFeat(**kwargs)
-            elif f == "motif_x1":
-                return MotifX1SeqFeat(**kwargs)
-            elif f == "motif_sequence_mask":
-                return MotifMaskSeqFeat(**kwargs)
             elif f == "plm_emb":
                 return PLMSeqFeat(**kwargs)
             elif f == "res_type":
                 return ResidueTypeSeqFeat(**kwargs)
-            elif f == "chain_idx":
-                return ChainIdxSeqFeat(**kwargs)
-            elif f == "time_interval_emb":
-                return TimeIntervalEmbeddingPairFeat(**kwargs)
-
             else:
                 raise IOError(f"Sequence feature {f} not implemented.")
 
         elif self.mode == "pair":
             if f == "xt_pair_dists":
                 return XtPairwiseDistancesPairFeat(**kwargs)
-            elif f == "x_sc_pair_dists":
-                return XscPairwiseDistancesPairFeat(**kwargs)
-            elif f == "rel_seq_sep":
-                return SequenceSeparationPairFeat(**kwargs)
             elif f == "time_emb":
                 return TimeEmbeddingPairFeat(**kwargs)
-            elif f == "motif_x1_pair_dists":
-                return MotifX1PairwiseDistancesPairFeat(**kwargs)
-            elif f == "motif_structure_mask":
-                return MotifStructureMaskFeat(**kwargs)
-            elif f == "chain_idx_pair":
-                return ChainIdxPairFeat(**kwargs)
-            elif f == "time_interval_emb":
-                return TimeIntervalEmbeddingPairFeat(**kwargs)
+            elif f == "rel_pos":
+                return RelativePositionPairFeat(**kwargs)
             else:
                 raise IOError(f"Pair feature {f} not implemented.")
 

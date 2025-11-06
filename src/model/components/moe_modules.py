@@ -67,7 +67,7 @@ class MoE(nn.Module):
         self.shared_expert = expert
         self.experts = Experts(n_experts, n_activated_experts, capacity_factor, expert, load_balance=load_balance)
 
-        self.gate = nn.Sequential(
+        self.router_linear = nn.Sequential(
             nn.Linear(dim + dim_router_cond, n_experts, bias=False),
             nn.Softmax(dim=-1),
         )
@@ -88,7 +88,7 @@ class MoE(nn.Module):
         if router_condition is not None and self.dim_router_cond > 0:
             x = torch.cat([x, router_condition], dim=-1)
 
-        scores = self.gate(x.view(-1, x.shape[-1]))
+        scores = self.router_linear(x.view(-1, x.shape[-1]))
         expert_weights, expert_indices = self._top_k(scores)
         if self.normalize_expert_weights:
             expert_weights = expert_weights / expert_weights.sum(dim=-1, keepdim=True)

@@ -65,10 +65,10 @@ def main(args: DictConfig):
         dist.init_process_group(
             backend="nccl", timeout=datetime.timedelta(seconds=timeout_seconds)
         )
-    else:
-        log_info(
-            f"LOCAL_RANK: {DIST_WRAPPER.local_rank} - CUDA_VISIBLE_DEVICES: [{devices}]"
-        )
+    # else:
+    #     log_info(
+    #         f"LOCAL_RANK: {DIST_WRAPPER.local_rank} - CUDA_VISIBLE_DEVICES: [{devices}]"
+    #     )
 
     # All ddp process got the same seed
     seed_everything(
@@ -105,7 +105,6 @@ def main(args: DictConfig):
             split_sequence_similarity=args.data.split_sequence_similarity,
             overwrite_sequence_clusters=False
         ),
-        in_memory=args.data.in_memory,
         format=args.data.format,
         overwrite=args.data.overwrite,
         batch_padding=args.data.batch_padding,
@@ -115,6 +114,9 @@ def main(args: DictConfig):
         batch_size=args.batch_size,
         num_workers=args.data.num_workers,
         pin_memory=args.data.pin_memory,
+        complex_dir=args.data.complex_dir,
+        complex_prop=args.data.complex_prop,
+        crop_size=args.data.crop_size,
     )
     # data_module.prepare_data()
     data_module.setup()

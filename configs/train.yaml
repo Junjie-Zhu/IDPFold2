@@ -1,9 +1,9 @@
 # configurations for training
-task_prefix: IDROME_TRAIN
+task_prefix: HYBRID_TRAIN
 batch_size: 8  # batch size on single device
 epochs: 500
 target_pred: v
-checkpoint_interval: 10  # save checkpoint every n epochs
+checkpoint_interval: 2  # save checkpoint every n epochs
 seed: 42
 deterministic: False
 logging_dir: "./logs"  # better absolute path, to revise
@@ -18,8 +18,8 @@ resume:
   load_model_only: True
 
 ema:
-  decay: 0.999  # EMA decay rate
-  mutable_param_keywords: [""]
+  decay: 0.99  # EMA decay rate
+  mutable_param_keywords: ["router"]
 
 noise:
   mode: mix_up02_beta
@@ -27,17 +27,19 @@ noise:
   p2: 1.0
 
 loss:
-  moe_loss_weight: 0.1
+  moe_loss_weight: 0.3  # empirically chosen
 
 data:
   data_dir: ./data/hybrid_train/
   plm_emb_dir: ./data/hybrid_train/embedding/
-  in_memory: False
+  complex_dir: ./data/hybrid_train/complex_contacts.csv
+  complex_prop: 0.8
+  crop_size: 256  # number of residues per crop
   format: "pdb"
   overwrite: False
   batch_padding: True
   sampling_mode: "cluster-random"
-  num_workers: 16 # Number of workers for dataloader
+  num_workers: 6 # Number of workers for dataloader
   pin_memory: True # Pin memory for dataloader
   fraction: 1.0
   molecule_type: null
@@ -66,28 +68,18 @@ model:
   strict_feats: False  # if False, then fills missing features with default values (e.g. chain break with zero, residue sequence index by [0, 1, 2, ...], etc)
   # If True, if some feature is not provided, then it raises an error
 
-  # List of all available sequence features:
-  #   "res_seq_pdb_idx", requires transform ResidueSequencePositionPdbTransform
-  #   "time_emb"
-  #   "chain_break_per_res", requires transform ChainBreakPerResidueTransform
-  #   "x_sc"
-  #   "fold_emb"
-  feats_init_seq: ["res_seq_pdb_idx", "chain_break_per_res", "plm_emb", "res_type"]  # Sequence features to include in initial representation
-  feats_cond_seq: ["time_emb", "plm_emb", "res_type"]  # Sequence features to include in conditioning variables
+  feats_init_seq: ["plm_emb", "res_type"]  # Sequence features to include in initial representation
+  feats_cond_seq: ["time_emb"]  # Sequence features to include in conditioning variables
 
   # Parameters for the features we extract (both for sequence representatoin and conditioning vector)
   t_emb_dim: 256  # dimension of the time embedding
   dim_cond: 512  # dimension of conditioning vector
-  idx_emb_dim: 128  # dimension of the sequence position [0, 1, 2, ...] (if contiguous residues) embeddings
+  r_max: 32
+  rel_pos_dim: 256  # dimension of the relative position embedding
   plm_in_dim: 1280
   plm_out_dim: 256
 
-  # List of all available sequence features:
-  #   "xt_pair_dists"
-  #   "x_sc_pair_dists"
-  #   "rel_seq_sep"
-  #   "time_emb"
-  feats_pair_repr: ["rel_seq_sep", "xt_pair_dists"]  # Features to include in the pair representation
+  feats_pair_repr: ["xt_pair_dists", "rel_pos"]  # Features to include in the pair representation
   feats_pair_cond: ["time_emb"]  # Features to include in the pair representation conditioning
 
   # Parameters for the pair features we extract
@@ -95,16 +87,6 @@ model:
   xt_pair_dist_dim: 64
   xt_pair_dist_min: 0.1  # in nm (not ?)
   xt_pair_dist_max: 3  # in nm (not ?)
-  # Binning for the pair distances for self conditioning
-  x_sc_pair_dist_dim: 128
-  x_sc_pair_dist_min: 0.1  # in nm (not ?)
-  x_sc_pair_dist_max: 3  # in nm (not ?)
-  # Motif Conditioning
-  x_motif_pair_dist_dim: 128
-  x_motif_pair_dist_min: 0.1  # in nm (not ?)
-  x_motif_pair_dist_max: 3  # in nm (not ?)
-  # Relative sequence separation
-  seq_sep_dim: 127  # should be odd >= 5
   # Dimension of final pair representation
   pair_repr_dim: 512
   num_registers: 10
@@ -125,7 +107,7 @@ optimizer:
   use_adamw: False
   lr_scheduler: "af3"
   warmup_steps: 4000
-  decay_every_n_steps: 50000
+  decay_every_n_steps: 80000
   decay_factor: 0.98
 
 defaults:
