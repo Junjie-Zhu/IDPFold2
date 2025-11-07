@@ -151,10 +151,10 @@ class RelativePositionPairFeat(Feature):
     def __init__(self, rel_pos_dim, r_max, **kwargs):
         super().__init__(dim=rel_pos_dim)
         self.r_max = r_max
-        self.LinearNoBias = nn.Linear(rel_pos_dim, 2 + 2 * (r_max + 1), bias=False)
+        self.LinearNoBias = nn.Linear(2 + 2 * (r_max + 1), rel_pos_dim, bias=False)
 
     def forward(self, batch):
-        residue_idx = batch["residue_idx_pdb"]  # [b, n]
+        residue_idx = batch["residue_pdb_idx"]  # [b, n]
         chain_idx = batch["chains"]  # [b, n]
 
         same_chain_mask = (chain_idx[:, :, None] == chain_idx[:, None, :]).long()  # [b, n, n]
