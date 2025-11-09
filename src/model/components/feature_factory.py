@@ -154,8 +154,23 @@ class RelativePositionPairFeat(Feature):
         self.LinearNoBias = nn.Linear(2 + 2 * (r_max + 1), rel_pos_dim, bias=False)
 
     def forward(self, batch):
-        residue_idx = batch["residue_pdb_idx"]  # [b, n]
-        chain_idx = batch["chains"]  # [b, n]
+        if "residue_pdb_idx" not in batch:
+            xt = batch["x_t"]  # [b, n, 3]
+            b, n = xt.shape[:2]
+            batch["residue_pdb_idx"] = torch.Tensor([[i + 1 for i in range(n)] for _ in range(b)]).to(
+                xt.device
+            )
+        else:
+            residue_idx = batch["residue_pdb_idx"]  # [b, n]
+
+        if "chains" not in batch:
+            xt = batch["x_t"]  # [b, n, 3]
+            b, n = xt.shape[:2]
+            batch["chains"] = torch.ones((b, n), dtype=torch.long).to(
+                xt.device
+            )
+        else:
+            chain_idx = batch["chains"]  # [b, n]
 
         same_chain_mask = (chain_idx[:, :, None] == chain_idx[:, None, :]).long()  # [b, n, n]
         rel_pos_chain = F.one_hot(same_chain_mask, 2)  # [b, n, n, 2]

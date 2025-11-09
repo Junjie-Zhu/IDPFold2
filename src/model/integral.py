@@ -432,14 +432,20 @@ def generating_predict(
     mask = batch["mask"] if 'mask' in batch else torch.ones(nsamples, nres).long().bool().to(device)
     plm_embedding = batch["plm_emb"] if "plm_emb" in batch else None
     residue_type = batch["residue_type"] if "residue_type" in batch else None
+    residue_idx = batch["residue_idx"] if "residue_idx" in batch else None
+    chains = batch["chains"] if "chains" in batch else None
 
     if len(mask.shape) == 1:
         mask = mask.unsqueeze(0).repeat(nsamples, 1)
         plm_embedding = plm_embedding.unsqueeze(0)
         residue_type = residue_type.unsqueeze(0)
+        residue_idx = residue_idx.unsqueeze(0)
+        chains = chains.unsqueeze(0)
 
     plm_embedding = plm_embedding.repeat(nsamples, 1, 1)
     residue_type = residue_type.repeat(nsamples, 1)
+    residue_idx = residue_idx.repeat(nsamples, 1)
+    chains = chains.repeat(nsamples, 1)
 
     pred_structure = flow_matching.full_simulation(
         cleaned_conditioned_predict,
@@ -449,6 +455,8 @@ def generating_predict(
         self_cond=self_conditioning,
         plm_embedding=plm_embedding,
         residue_type=residue_type,
+        residue_idx=residue_idx,
+        chains=chains,
         device=device,
         mask=mask,
         dtype=torch.float32,

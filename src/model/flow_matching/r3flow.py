@@ -406,6 +406,8 @@ class R3NFlowMatcher:
             self_cond: bool,
             plm_embedding: torch.Tensor,
             residue_type: torch.Tensor,
+            residue_idx: torch.Tensor,
+            chains: torch.Tensor,
             device: torch.device,
             mask: Tensor,
             schedule_mode: Literal[
@@ -516,6 +518,10 @@ class R3NFlowMatcher:
                     nn_in["plm_emb"] = plm_embedding
                 if residue_type is not None:
                     nn_in["residue_type"] = residue_type
+                if residue_idx is not None:
+                    nn_in["residue_pdb_idx"] = residue_idx
+                if chains is not None:
+                    nn_in["chains"] = chains
 
                 if step > 0 and self_cond:
                     nn_in["x_sc"] = x_1_pred  # Self-conditioning
