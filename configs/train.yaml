@@ -18,8 +18,8 @@ resume:
   load_model_only: True
 
 ema:
-  decay: 0.99  # EMA decay rate
-  mutable_param_keywords: ["router"]
+  decay: 0.999  # EMA decay rate
+  mutable_param_keywords: [""]
 
 noise:
   mode: mix_up02_beta
@@ -68,14 +68,13 @@ model:
   strict_feats: False  # if False, then fills missing features with default values (e.g. chain break with zero, residue sequence index by [0, 1, 2, ...], etc)
   # If True, if some feature is not provided, then it raises an error
 
-  feats_init_seq: ["plm_emb", "res_type"]  # Sequence features to include in initial representation
+  feats_init_seq: ["plm_emb", "res_type", "res_idx", "chain_break_per_res"]  # Sequence features to include in initial representation
   feats_cond_seq: ["time_emb"]  # Sequence features to include in conditioning variables
 
   # Parameters for the features we extract (both for sequence representatoin and conditioning vector)
   t_emb_dim: 256  # dimension of the time embedding
+  idx_emb_dim: 128  # dimension of the residue index embedding
   dim_cond: 512  # dimension of conditioning vector
-  r_max: 32
-  rel_pos_dim: 256  # dimension of the relative position embedding
   plm_in_dim: 1280
   plm_out_dim: 256
 
@@ -87,6 +86,8 @@ model:
   xt_pair_dist_dim: 64
   xt_pair_dist_min: 0.1  # in nm (not ?)
   xt_pair_dist_max: 3  # in nm (not ?)
+  r_max: 32  # maximum relative position (in sequence index) to consider
+
   # Dimension of final pair representation
   pair_repr_dim: 512
   num_registers: 10

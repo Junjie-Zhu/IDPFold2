@@ -145,32 +145,76 @@ class TimeEmbeddingPairFeat(Feature):
         return t_emb.expand((t_emb.shape[0], n, n, t_emb.shape[3]))  # [b, n, t_emb_dim]
 
 
+class IdxEmbeddingSeqFeat(Feature):
+    """Computes index embedding and returns sequence feature of shape [b, n, idx_emb]."""
+
+    def __init__(self, idx_emb_dim, **kwargs):
+        super().__init__(dim=idx_emb_dim)
+
+    def forward(self, batch):
+        # If it has the actual residue indices
+        if "residue_pdb_idx" in batch:
+            inds = batch["residue_pdb_idx"]  # [b, n]
+        else:
+            self.assert_defaults_allowed(batch, "Residue index sequence")
+            xt = batch["x_t"]  # [b, n, 3]
+            b, n = xt.shape[0], xt.shape[1]
+            inds = torch.Tensor([[i + 1 for i in range(n)] for _ in range(b)]).to(
+                xt.device
+            )  # [b, n]
+        return get_index_embedding(inds, edim=self.dim)  # [b, n, idx_embed_dim]
+
+
+class ChainBreakPerResidueSeqFeat(Feature):
+    """Computes chain break per residue and returns sequence feature of shape [b, n, 1]."""
+
+    def __init__(self, **kwargs):
+        super().__init__(dim=1)
+
+    def forward(self, batch):
+        if "chain_break_per_res" in batch:
+            chain_breaks = batch["chain_break_per_res"]  # [b, n]
+        elif "chains" in batch:
+            chain_idx = batch["chains"]  # [b, n]
+            chain_breaks = (chain_idx[:, 1:] != chain_idx[:, :-1]).float()  # [b, n-1]
+            chain_breaks = F.pad(chain_breaks, (0, 1), mode="constant", value=1.0)  # [b, n]
+        else:
+            self.assert_defaults_allowed(batch, "Chain break per residue sequence")
+            xt = batch["x_t"]  # [b, n, 3]
+            b, n = xt.shape[0], xt.shape[1]
+            chain_breaks = torch.zeros((b, n), device=xt.device)  # [b, n]
+        return chain_breaks[..., None]  # [b, n, 1]
+
+
 class RelativePositionPairFeat(Feature):
     """Computes relative position for residue and chain ids"""
 
-    def __init__(self, rel_pos_dim, r_max, **kwargs):
-        super().__init__(dim=rel_pos_dim)
+    def __init__(self, r_max, **kwargs):
+        super().__init__(dim=2 + 2 * (r_max + 1))
         self.r_max = r_max
-        self.LinearNoBias = nn.Linear(2 + 2 * (r_max + 1), rel_pos_dim, bias=False)
 
     def forward(self, batch):
-        if "residue_pdb_idx" not in batch:
-            xt = batch["x_t"]  # [b, n, 3]
-            b, n = xt.shape[:2]
-            batch["residue_pdb_idx"] = torch.Tensor([[i + 1 for i in range(n)] for _ in range(b)]).to(
-                xt.device
-            )
-        else:
-            residue_idx = batch["residue_pdb_idx"]  # [b, n]
-
         if "chains" not in batch:
             xt = batch["x_t"]  # [b, n, 3]
             b, n = xt.shape[:2]
             batch["chains"] = torch.ones((b, n), dtype=torch.long).to(
                 xt.device
             )
-        else:
-            chain_idx = batch["chains"]  # [b, n]
+        chain_idx = batch["chains"]  # [b, n]
+
+        if "residue_pdb_idx" not in batch:
+            xt = batch["x_t"]  # [b, n, 3]
+            b, n = xt.shape[:2]
+            batch["residue_pdb_idx"] = torch.Tensor([[i + 1 for i in range(n)] for _ in range(b)]).to(
+                xt.device
+            )
+        residue_idx = batch["residue_pdb_idx"]  # [b, n]
+
+        try:
+            rpadmask = batch["mask_dict"]["residue_type"]  # [b, n] binary
+        except:
+            rpadmask = batch["mask"]  # [b, n] binary
+        rpadmask = rpadmask[..., None] * rpadmask[..., None, :]  # [b, n, n] binary
 
         same_chain_mask = (chain_idx[:, :, None] == chain_idx[:, None, :]).long()  # [b, n, n]
         rel_pos_chain = F.one_hot(same_chain_mask, 2)  # [b, n, n, 2]
@@ -180,8 +224,8 @@ class RelativePositionPairFeat(Feature):
             min=0, max=2 * self.r_max,
         ) * same_chain_mask + (1 - same_chain_mask) * (2 * self.r_max + 1)  # [b, n, n]
         rel_pos_residue = F.one_hot(d_residue.long(), 2 * (self.r_max + 1))  # [b, n, n, 2 * (r_max + 1)]
-        rel_pos = torch.cat([rel_pos_chain, rel_pos_residue], dim=-1)  # [b, n, n, 2 + 2 * (r_max + 1)]
-        return self.LinearNoBias(rel_pos.float())  # [b, n, n, rel_pos_dim]
+        rel_pos = torch.cat([rel_pos_residue, rel_pos_chain], dim=-1)  # [b, n, n, 2 + 2 * (r_max + 1)]
+        return rel_pos * rpadmask[..., None]  # [b, n, n, dim]
 
 
 class XtPairwiseDistancesPairFeat(Feature):
@@ -310,6 +354,10 @@ class FeatureFactory(torch.nn.Module):
                 return PLMSeqFeat(**kwargs)
             elif f == "res_type":
                 return ResidueTypeSeqFeat(**kwargs)
+            elif f == "res_idx":
+                return IdxEmbeddingSeqFeat(**kwargs)
+            elif f == "chain_break_per_res":
+                return ChainBreakPerResidueSeqFeat(**kwargs)
             else:
                 raise IOError(f"Sequence feature {f} not implemented.")
 

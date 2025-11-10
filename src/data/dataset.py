@@ -15,9 +15,9 @@ import random
 import ast
 import pickle
 
+from loguru import logger
 import pandas as pd
 import torch
-from loguru import logger
 from torch.utils.data import Dataset, DataLoader
 from torch_geometric.data import Data
 from torch_geometric import transforms as T
@@ -434,10 +434,13 @@ class PDBDataset(Dataset):
             return self.continuous_crop(graph)
 
         companion_chain, query_residues = self.get_companion(fname.replace('.pt', ''))
-        if random.random() < self.complex_prop and companion_chain is not None:
+        if random.random() < self.complex_prop and companion_chain is not None:  # build multimer at chance self.complex_prop
             graph_companion, _ = self.process_single_chain(f"{companion_chain}.pt")
             graph = self.concat_two_chains(graph, graph_companion)
-            graph = self.spatial_crop(graph, query_residues)
+            if random.random() < 0.3:  # only in 30% cases use spatial cropping for incontinuous residue indexes
+                graph = self.spatial_crop(graph, central_residues=query_residues)
+            else:
+                graph = self.multichain_continuous_crop(graph)
         else:
             graph = self.continuous_crop(graph)
         return graph
@@ -483,7 +486,8 @@ class PDBDataset(Dataset):
         return graph, complex_avail
 
     def concat_two_chains(self, chain1, chain2):
-        chain2.chains += 1
+        if chain2.chains[0] == chain1.chains[-1]:
+            chain2.chains += 1
 
         # assume two chains have the same keys
         for k in chain1.keys():
@@ -505,57 +509,107 @@ class PDBDataset(Dataset):
             return graph
 
         ca_coords = graph.coords[:, 1, :].squeeze()
-
         central_residue_id = random.choice(central_residues)
         central_coord = ca_coords[central_residue_id, :]
 
-        # calculate distances from central residue to all other residues
+        # Calculate distances and select top K indices
         distances = torch.norm(ca_coords - central_coord, dim=1)
+        _, selected_indices = torch.topk(distances, k=self.crop_size, largest=False)
 
-        # get the minimal set of residues within crop_size
-        sorted_distances, sorted_indices = torch.sort(distances)
-        selected_indices = sorted_indices[:self.crop_size]
-
-        # only reserve the selected residues in the graph
+        new_attributes = {}
         for k, v in graph.items():
             if 'bfactor' in k:
                 continue
-            if torch.is_tensor(v):
-                graph[k] = v[selected_indices]
-            elif isinstance(v, list):
-                graph[k] = [v[i] for i in selected_indices.tolist()]
-            else:
-                continue
-        return graph
+            if k == 'residue_pdb_idx':
+                new_attributes[k] = v[selected_indices] - v[selected_indices].min() + 1
+            elif torch.is_tensor(v) and len(v.shape) >= 1:
+                assert v.shape[0] == n_res, f"Shape mismatch for key {k}: {v.shape[0]} != {n_res}"
+                new_attributes[k] = v[selected_indices]
+            # elif isinstance(v, list) and len(v) == n_res:
+            #     new_attributes[k] = [v[i] for i in selected_indices.tolist()]
+            # else:
+            #     new_attributes[k] = v
+        return Data(**new_attributes)
 
-    def continuous_crop(self, graph):
-        """Crop a graph to a fixed size using continuous cropping.
-
-        Args:
-            graph (Data): PyTorch Geometric Data object.
-            crop_size (int): Size to crop the graph to.
-
-        Returns:
-            Data: Cropped PyTorch Geometric Data object.
-        """
+    def multichain_continuous_crop(self, graph):
         n_res = graph.coords.shape[0]
         if n_res <= self.crop_size:
             return graph
 
+        chain_ids = torch.unique(graph['chains']).tolist()
+        random.shuffle(chain_ids)
+        chain_indices: Dict[int, torch.Tensor] = {
+            cid: torch.where(graph['chains'] == cid)[0] for cid in chain_ids
+        }
+        cropped_parts = {k: [] for k in graph.keys()}
+
+        n_added = 0
+        n_remaining = n_res
+        for cid in chain_ids:
+            indices = chain_indices[cid]
+            chain_size = indices.shape[0]
+            n_remaining -= chain_size
+
+            crop_size_max = min(chain_size, self.crop_size - n_added)
+            crop_size_min = min(chain_size, max(0, self.crop_size - n_added - n_remaining))
+            if crop_size_min > crop_size_max:
+                crop_size = crop_size_max
+            else:
+                crop_size = random.randint(crop_size_min, crop_size_max)
+            if crop_size < 3:
+                continue
+            n_added += crop_size
+
+            max_start = chain_size - crop_size
+            crop_start = random.randint(0, max_start) if max_start >= 0 else 0
+            crop_end = crop_start + crop_size
+            token_crop_indices = indices[crop_start:crop_end]
+            for k, v in graph.items():
+                if 'bfactor' in k:
+                    continue
+                if k == 'residue_pdb_idx':
+                    # force residue index to start from 1
+                    cropped_parts[k].append(torch.arange(1, len(token_crop_indices) + 1, device=v.device))
+                elif torch.is_tensor(v) and len(v.shape) >= 1:
+                    assert v.shape[0] == n_res, f"Shape mismatch for key {k}: {v.shape[0]} != {n_res}"
+                    cropped_parts[k].append(v[token_crop_indices])
+            if n_added >= self.crop_size:
+                break
+        if n_added == 0:
+            return graph
+
+        new_attributes = {}
+        for k, v_list in cropped_parts.items():
+            if v_list:
+                new_attributes[k] = torch.cat(v_list, dim=0)
+        return Data(**new_attributes)
+
+    def continuous_crop(self, graph):
+        n_res = graph.coords.shape[0]
+        if n_res <= self.crop_size:
+            return graph
+
+        # Determine start/end indices
         start = torch.randint(0, n_res - self.crop_size + 1, (1,)).item()
         end = start + self.crop_size
 
-        mask = torch.zeros(n_res, dtype=torch.bool)
-        mask[start:end] = True
+        # Create the index tensor for slicing all node attributes
+        selected_indices = torch.arange(start, end, dtype=torch.long)
 
         cropped_graph = Data()
-        for key, item in graph:
+        for key, item in graph.items():
+            if 'bfactor' in key:
+                continue
             if torch.is_tensor(item) and len(item.shape) >= 1:
-                cropped_graph[key] = item[mask]
-            elif isinstance(item, list) and len(item) == n_res:
-                cropped_graph[key] = item[start:end]
-            else:
-                cropped_graph[key] = item
+                assert item.shape[0] == n_res, f"Shape mismatch for key {key}: {item.shape[0]} != {n_res}"
+                cropped_graph[key] = item[selected_indices]
+            # elif isinstance(item, list) and len(item) == n_res:
+            #     cropped_graph[key] = item[start:end]
+            # else:
+            #     cropped_graph[key] = item
+        # force residue index to start from 1
+        residue_idx = cropped_graph.residue_pdb_idx
+        cropped_graph.residue_pdb_idx = residue_idx - residue_idx[0] + 1
         return cropped_graph
 
     @staticmethod

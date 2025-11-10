@@ -314,6 +314,7 @@ def main(args: DictConfig):
                     moe_conditioning=args.moe_conditioning,
                     self_conditioning=args.self_conditioning,
                     moe_loss_weight=args.loss.moe_loss_weight,
+                    force_moe_capacity=False,  # do not limit capacity during validation
                 )
 
                 step_val_loss = val_loss.item()
@@ -359,6 +360,8 @@ def main(args: DictConfig):
                         "plm_emb": val_dict["plm_emb"][-1],
                         "nres": val_dict["plm_emb"].shape[1],
                         "residue_type": val_dict["residue_type"][-1],
+                        "residue_idx": val_dict["residue_pdb_idx"][-1],
+                        "chains": val_dict["chains"][-1],
                         "mask": val_dict["mask"][-1],
                     }
                     pred_structure = generating_predict(

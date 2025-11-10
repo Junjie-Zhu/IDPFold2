@@ -73,15 +73,16 @@ class MoE(nn.Module):
         )
         self.load_balance = load_balance
 
-    def forward(self, x, cond, mask, router_condition=None):
+    def forward(self, x, cond, mask, router_condition=None, force_capacity=True):
         scores, expert_weights, expert_indices = self.router(x, router_condition)
 
         x_shared = self.shared_expert(x, cond, mask)
 
         if self.normalize_expert_weights:
-            x = (x_shared + self.experts(x, cond, mask, scores, expert_weights, expert_indices) * self.n_activated_experts) / (self.n_activated_experts + 1)
+            x = (x_shared + self.experts(x, cond, mask, scores, expert_weights, expert_indices, force_capacity
+                                         ) * self.n_activated_experts) / (self.n_activated_experts + 1)
         else:
-            x = x_shared + self.experts(x, cond, mask, scores, expert_weights, expert_indices)
+            x = x_shared + self.experts(x, cond, mask, scores, expert_weights, expert_indices, force_capacity)
         return x
     
     def router(self, x, router_condition=None):
@@ -126,10 +127,10 @@ class Experts(nn.Module):
         self.sort_end_bit = max(1, int(np.ceil(np.log2(self.n_experts))))
         self.load_balance = load_balance
 
-    def forward(self, x, cond, mask, scores, expert_weights, top_experts):
+    def forward(self, x, cond, mask, scores, expert_weights, top_experts, force_capacity=True):
         b, n, d = x.shape
 
-        x, tokens_per_expert = self._single_forward(x, cond, mask, expert_weights, top_experts)
+        x, tokens_per_expert = self._single_forward(x, cond, mask, expert_weights, top_experts, force_capacity)
 
         # load balancing loss
         if self.load_balance:
@@ -138,7 +139,7 @@ class Experts(nn.Module):
         x = x.view(b, n, d)
         return x
 
-    def _single_forward(self, x, cond, mask, expert_weights, top_experts):
+    def _single_forward(self, x, cond, mask, expert_weights, top_experts, force_capacity=True):
         expert_weights = expert_weights.flatten()
         top_experts = top_experts.flatten()
         with torch.no_grad():
@@ -147,9 +148,12 @@ class Experts(nn.Module):
 
             # If expert_capacity is set to zero, set the number of tokens
             # per expert to the maximum we need to avoid dropping tokens.
-            sl, bs, hs = x.size()
-            capacity = self.expert_capacity(sl * bs)
-            capacity = min(torch.max(tokens_per_expert).item(), capacity)
+            if force_capacity:
+                sl, bs, hs = x.size()
+                capacity = self.expert_capacity(sl * bs)
+                capacity = min(torch.max(tokens_per_expert).item(), capacity)
+            else:
+                capacity = torch.max(tokens_per_expert).item()
 
         x = self.permute_and_compute(
             x,
@@ -202,16 +206,30 @@ class Experts(nn.Module):
         for i in range(self.n_experts):
             x_i = x[i, :, :]
             cond_i = cond[i, :, :]
-            mask_i = mask[i, :, 0].squeeze(-1)
-            x_out.append(self.expert[i](x_i, cond_i, mask_i))
+            mask_i = mask[i, :, 0]
+            # x_out.append(self._single_expert_forward(x_i, cond_i, mask_i, i))
+            x_out.append(self.expert[i](x_i, cond_i, mask_i.squeeze(-1)))
         x_out = torch.stack(x_out, dim=0)
 
         # Un-route the data for the MoE output.
         return ops.binned_scatter(
             x_out, indices, expert_weights, bins, top_k)
 
+    def _single_expert_forward(self, x, cond, mask, expert_idx):
+        """efficient forward for single expert case"""
+        x_out = torch.zeros_like(x)
 
+        mask = mask.bool()
+        if not mask.any():
+            return x_out  # Return zero-filled tensor immediately
 
-
-
+        x_active = x[mask]
+        cond_active = cond[mask]
+        expert_inner_mask = torch.ones(
+            x_active.shape[:-1],
+            dtype=torch.bool,
+            device=x_active.device
+        )
+        x_out[mask] = self.expert[expert_idx](x_active, cond_active, expert_inner_mask)
+        return x_out
 

@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 
 import src.model.components.moe_modules as moe_modules
-from src.common.atom37_constants import ATOM37_TO_ATOM14_INDICES, RESTYPE_TO_IDX, ATOM14_MASK
 
 nm_to_ang_scale = 10.0
 ang_to_nm = lambda trans: trans / nm_to_ang_scale
@@ -60,7 +59,7 @@ def conditioned_predict(
     if moe_conditioning:
         batch.update(moe_factory(batch, zeroes=True))
 
-    nn_out = model(batch)
+    nn_out = model(batch, force_moe_capacity=False)  # force_moe_capacity set to False during sampling
     x_pred = prediction_to_x_clean(nn_out, batch, target_pred=target_pred)
 
     if guidance_weight != 1.0:
@@ -172,82 +171,6 @@ def extract_clean_sample(batch, flow_matching, global_rotation=True):
     )
 
 
-def extract_atom_clean_sample(batch, flow_matching, global_rotation=True):
-    coords_atom37 = batch["coords"]  # [b, n, 37, 3]
-    mask_atom37 = batch["mask_dict"]["coords"]  # [b, n, 37, 1]
-    restype = batch["residues"]  # [b, n]
-
-    b, nres, _, coord_shape = coords_atom37.shape
-
-    x_1, mask = atom37_to_atom14_tensor(coords_atom37, mask_atom37, restype)
-    x_1 = x_1.view(b, nres * 14, coord_shape)
-    mask = mask.view(b, nres * 14)
-    if global_rotation:
-        x_1, mask = apply_random_rotation(x_1, mask, flow_matching)
-    return (
-        ang_to_nm(x_1),
-        mask,
-        (b,),
-        nres * 14,
-        x_1.dtype,
-    )
-
-
-def atom37_to_atom14_tensor(x, atom37_mask, restype):
-    """
-    Convert atom37 representation to atom14 representation using Torch.
-
-    Args:
-        x: Atom37 coordinates, shape [B, N, 37, D].
-        atom37_mask: Atom37 presence mask, shape [B, N, 37].
-        restype: Residue types, shape [B, N].
-
-    Returns:
-        A tuple containing:
-            - atom14_tensor: Atom14 coordinates, shape [B, N, 14, D].
-            - atom14_presence_mask: A boolean mask for the atom14 tensor,
-              shape [B, N, 14]. This is a combination of the residue type mask
-              and the input atom37_mask.
-    """
-    b, nres, _, d = x.shape
-    device = x.device
-
-    # Vectorize the residue type lookup using a mapping from string to index.
-    residue_indices_list = [[RESTYPE_TO_IDX[rt] for rt in batch] for batch in restype]
-    residue_indices = torch.tensor(residue_indices_list, dtype=torch.long, device=device)  # [B, N]
-
-    # Gather the atom37 indices and mask for the given residue types
-    atom37_indices = ATOM37_TO_ATOM14_INDICES.to(device)[residue_indices]  # [B, N, 14]
-    type_mask = ATOM14_MASK.to(device)[residue_indices]  # [B, N, 14]
-
-    # Use advanced indexing to gather data from the atom37 tensor
-    # The 'torch.arange' creates a broadcastable array for the batch and residue dimensions.
-    batch_idx = torch.arange(b, device=device)[:, None, None]
-    res_idx = torch.arange(nres, device=device)[None, :, None]
-
-    atom14_tensor = x[
-        batch_idx,
-        res_idx,
-        atom37_indices,
-        :
-    ]
-
-    gathered_mask = atom37_mask[
-        batch_idx,
-        res_idx,
-        atom37_indices
-    ]
-
-    # Combine the two masks: an atom is present only if it's in the residue type
-    # mask AND the input atom37_mask.
-    atom14_presence_mask = gathered_mask & type_mask
-
-    # Zero out the coordinates for non-existent atoms using the combined mask.
-    atom14_tensor = atom14_tensor * atom14_presence_mask.unsqueeze(-1)
-
-    return atom14_tensor, atom14_presence_mask
-
-
 def compute_fm_loss(
     x_1: torch.Tensor,
     x_1_pred: torch.Tensor,
@@ -323,7 +246,8 @@ def training_predict(
     motif_conditioning=False,
     moe_conditioning=False,
     self_conditioning=False,
-    moe_loss_weight=0.0
+    moe_loss_weight=0.0,
+    force_moe_capacity=True,
 ):
     # get input data
     x_1, mask, batch_shape, n, dtype = extract_clean_sample(batch, flow_matching)
@@ -361,11 +285,11 @@ def training_predict(
 
     # self-conditioning
     if self_conditioning and random.random() < 0.5:
-        x_sc = prediction_to_x_clean(model(batch), batch, target_pred=target_pred)
+        x_sc = prediction_to_x_clean(model(batch, force_moe_capacity), batch, target_pred=target_pred)
         batch['x_sc'] = x_sc
 
     # model prediction
-    nn_out = model(batch)
+    nn_out = model(batch, force_moe_capacity)
     x_pred = prediction_to_x_clean(nn_out, batch, target_pred=target_pred)
 
     # loss
@@ -476,90 +400,3 @@ def generating_predict(
     moe_modules.clear_load_balancing_loss()
     return pred_structure
 
-
-def mf_loss(u, u_target, mask, gamma=0.5, c=1e-3):
-    natom = mask.sum(dim=-1) * 3  # [*]
-    err = (u - u_target.detach()) * mask[..., None]  # [*, n * 14, 3]
-    loss = torch.sum(err**2, dim=(-1, -2)) / natom  # [*]
-
-    p = 1.0 - gamma
-    w = 1.0 / (loss + c).pow(p)
-    return (w.detach() * loss).mean()
-
-
-def atom_training_predict(
-    batch,
-    flow_matching,
-    model: nn.Module,
-    noise_kwargs: dict,
-    r_ratio: float = 0.25,
-):
-    x_0, mask, batch_shape, n, dtype = extract_atom_clean_sample(batch, flow_matching)  # b, n * 14, 3
-    device = x_0.device
-
-    x_0 = flow_matching._mask_and_zero_com(x_0, mask)
-
-    if "mode" in noise_kwargs:
-        noise_mode = noise_kwargs["mode"]
-        noise_kwargs.pop("mode")
-    else:
-        noise_mode = "uniform"
-    t = sample_t(noise_mode, batch_shape, device, **noise_kwargs)
-
-    assert 0.0 < r_ratio < 1.0, "r_ratio should be in (0, 1)"
-    _r = sample_t(noise_mode, batch_shape, device, **noise_kwargs)
-    t = torch.maximum(_r, t)
-    r = torch.minimum(_r, t)
-
-    _r_mask = r < r_ratio
-    r[_r_mask] = t[_r_mask]
-
-    x_1 = flow_matching.sample_reference(
-        n=n, shape=batch_shape, device=device, dtype=dtype, mask=mask
-    )
-
-    x_t = flow_matching.interpolate(x_1, x_0, t) * mask[..., None]
-    v_t = flow_matching.xt_dot(x_0, x_t, t, mask) * mask[..., None]
-
-    x_t = x_t.view(batch_shape, n, 14 * 3)
-
-    batch.update({"mask": (mask.view(batch_shape, n // 14, 14).sum(dim=-1) > 0).float(), "atom_mask": mask})
-    _model = partial(model, batch_nn=batch)
-    jvp_args = (
-        lambda x_t, t, r: _model(x_t, t, r),
-        (x_t, t, r),
-        (v_t, torch.ones_like(t), torch.ones_like(r)),
-    )
-
-    u, dudt = torch.func.jvp(*jvp_args)
-    u_target = v_t - (t - r) * dudt
-    loss = mf_loss(u, u_target, mask)
-
-    return loss
-
-
-def atom_generating_predict(
-    batch,
-    model: nn.Module,
-    flow_matching: Callable,
-    n_step: int = 5,
-    device = 'cpu'
-):
-    nsamples = batch["nsamples"]
-    nres = batch["nres"]
-    mask = batch["mask"].squeeze(0) if 'mask' in batch else torch.ones(nsamples, nres).long().bool().to(device)
-
-    z = flow_matching.sample_reference(
-        n=nres, shape=(nsamples,), device=device, dtype=torch.float32, mask=mask
-    )
-
-    t_vals = torch.linspace(0.0, 1.0, n_step + 1, device=device)  # [n_step + 1]
-
-    for i in range(n_step):
-        r = torch.full((nsamples,), t_vals[i], device=device)
-        t = torch.full((nsamples,), t_vals[i + 1], device=device)
-
-        v_t = model(z, t, r, batch_nn=batch)  # [nsamples, n * 14, 3]
-        z = z + (t - r) * v_t
-
-    return z
