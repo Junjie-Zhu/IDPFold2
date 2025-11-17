@@ -179,6 +179,9 @@ def main(args: DictConfig):
             model.load_state_dict(ema_checkpoint['model_state_dict'])
         ema_wrapper.register()
 
+        # clear checkpoint variables
+        del ema_checkpoint
+
     if args.resume.ckpt_dir is not None:
         checkpoint = torch.load(args.resume.ckpt_dir, map_location=device)
         if DIST_WRAPPER.world_size > 1:
@@ -189,6 +192,7 @@ def main(args: DictConfig):
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             start_epoch = checkpoint['epoch'] + 1
+        del checkpoint
 
     # sanity check
     torch.cuda.empty_cache()
