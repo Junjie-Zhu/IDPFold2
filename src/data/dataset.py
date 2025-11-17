@@ -515,6 +515,7 @@ class PDBDataset(Dataset):
         # Calculate distances and select top K indices
         distances = torch.norm(ca_coords - central_coord, dim=1)
         _, selected_indices = torch.topk(distances, k=self.crop_size, largest=False)
+        selected_indices, _ = torch.sort(selected_indices)
 
         new_attributes = {}
         for k, v in graph.items():

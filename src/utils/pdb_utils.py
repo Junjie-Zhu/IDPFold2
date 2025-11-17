@@ -21,11 +21,13 @@ INT_TO_CHAIN = {
 def to_pdb_simple(
     atom_positions: torch.Tensor,
     residue_ids: torch.Tensor,
+    chain_ids: torch.Tensor,
     output_dir: str,
     accession_code: str = None,
 ):
     n_samples, n_res, _ = atom_positions.shape
     residue_types = [rc.restype_1to3[rc.restypes[residue_ids[i].item()]] for i in range(n_res)]
+    chain_ids = [INT_TO_CHAIN[chain_ids[i].item()] for i in range(n_res)]
 
     if accession_code is None:
         accession_code = f"samples_l{n_res}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -36,7 +38,7 @@ def to_pdb_simple(
             for i in range(atom_positions.shape[1]):
                 atom_name = 'CA'
                 resname = residue_types[i]
-                chain_idx = 'A'
+                chain_idx = chain_ids[i]
                 res_idx = i + 1
 
                 x, y, z = atom_positions[sample][i]

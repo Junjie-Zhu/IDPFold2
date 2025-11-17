@@ -399,6 +399,7 @@ def main(args: DictConfig):
                     to_pdb_simple(
                         atom_positions=pred_structure.squeeze() * 10,
                         residue_ids=inf_dict["residue_type"].squeeze(),
+                        chain_ids=inf_dict["chains"].squeeze(),
                         output_dir=os.path.join(logging_dir, "samples"),
                         accession_code=f"val_{crt_epoch}",
                     )
