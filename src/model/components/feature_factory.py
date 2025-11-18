@@ -3,8 +3,6 @@ from typing import Dict, List, Literal
 import torch
 import torch.nn.functional as F
 from loguru import logger
-from torch import nn
-from torch_scatter import scatter_mean
 
 from src.utils.idx_emb_utils import get_index_embedding, get_time_embedding
 
