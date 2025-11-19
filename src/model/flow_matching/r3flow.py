@@ -10,10 +10,10 @@
 
 
 import math
-from typing import Callable, List, Literal, Optional, Tuple
+from typing import Callable, Literal, Optional, Tuple, Dict
 
 import torch
-from torch import Dict, Tensor
+from torch import Tensor
 from tqdm import tqdm
 
 from src.utils.align_utils import mean_w_mask

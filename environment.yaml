@@ -25,3 +25,4 @@ dependencies:
     - tqdm==4.66.4
     - cpdb-protein
     - biopython
+    - rootutils

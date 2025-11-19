@@ -377,7 +377,7 @@ class PDBDataset(Dataset):
         self.file_names = file_names
         self.num_workers = num_workers
         self.transform = transform
-        self.plm_embedding = pathlib.Path(plm_embedding)
+        self.plm_embedding = pathlib.Path(plm_embedding) if plm_embedding else None
         self.sequence_id_to_idx = None
         self.complex_prop = complex_prop
         self.crop_size = crop_size
@@ -437,12 +437,15 @@ class PDBDataset(Dataset):
         if random.random() < self.complex_prop and companion_chain is not None:  # build multimer at chance self.complex_prop
             graph_companion, _ = self.process_single_chain(f"{companion_chain}.pt")
             graph = self.concat_two_chains(graph, graph_companion)
-            if random.random() < 0.3:  # only in 30% cases use spatial cropping for incontinuous residue indexes
+            if random.random() < 0.5:  # only in 30% cases use spatial cropping for incontinuous residue indexes
                 graph = self.spatial_crop(graph, central_residues=query_residues)
             else:
                 graph = self.multichain_continuous_crop(graph)
         else:
             graph = self.continuous_crop(graph)
+
+        if self.transform:
+            graph = self.transform(graph)
         return graph
 
     def get_companion(self, query_chain_id):
@@ -466,6 +469,7 @@ class PDBDataset(Dataset):
         return plm_fname, complex_avail
 
     def process_single_chain(self, fname):
+        complex_avail = False
         graph = torch.load(self.data_dir / "processed" / fname, weights_only=False)
         if self.plm_embedding is not None:
             plm_fname, complex_avail = self.get_embedding_name(fname)
@@ -480,9 +484,6 @@ class PDBDataset(Dataset):
         # reorder coords to be in OpenFold and not PDB convention
         graph.coords = graph.coords[:, PDB_TO_OPENFOLD_INDEX_TENSOR, :]
         graph.coord_mask = graph.coord_mask[:, PDB_TO_OPENFOLD_INDEX_TENSOR]
-
-        if self.transform:
-            graph = self.transform(graph)
         return graph, complex_avail
 
     def concat_two_chains(self, chain1, chain2):
