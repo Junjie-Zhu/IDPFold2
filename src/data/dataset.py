@@ -431,7 +431,10 @@ class PDBDataset(Dataset):
 
         # get multimer data, not available for in memory mode currently
         if not complex_avail:
-            return self.continuous_crop(graph)
+            graph = self.continuous_crop(graph)
+            if self.transform:
+                graph = self.transform(graph)
+            return graph
 
         companion_chain, query_residues = self.get_companion(fname.replace('.pt', ''))
         if random.random() < self.complex_prop and companion_chain is not None:  # build multimer at chance self.complex_prop
@@ -471,6 +474,11 @@ class PDBDataset(Dataset):
     def process_single_chain(self, fname):
         complex_avail = False
         graph = torch.load(self.data_dir / "processed" / fname, weights_only=False)
+
+        # only reserve useful information
+        keys_to_keep = ['residue_type', 'coord_mask', 'coords', 'residue_pdb_idx', 'chains']
+        graph = Data(**{k: v for k, v in graph.items() if k in keys_to_keep})
+
         if self.plm_embedding is not None:
             plm_fname, complex_avail = self.get_embedding_name(fname)
             if os.path.isfile(self.plm_embedding / plm_fname):
@@ -492,8 +500,6 @@ class PDBDataset(Dataset):
 
         # assume two chains have the same keys
         for k in chain1.keys():
-            if 'bfactor' in k:
-                continue
             value1 = chain1[k]
             value2 = chain2[k]
             if torch.is_tensor(value1):
@@ -520,8 +526,6 @@ class PDBDataset(Dataset):
 
         new_attributes = {}
         for k, v in graph.items():
-            if 'bfactor' in k:
-                continue
             if k == 'residue_pdb_idx':
                 new_attributes[k] = v[selected_indices] - v[selected_indices].min() + 1
             elif torch.is_tensor(v) and len(v.shape) >= 1:
@@ -567,8 +571,6 @@ class PDBDataset(Dataset):
             crop_end = crop_start + crop_size
             token_crop_indices = indices[crop_start:crop_end]
             for k, v in graph.items():
-                if 'bfactor' in k:
-                    continue
                 if k == 'residue_pdb_idx':
                     # force residue index to start from 1
                     cropped_parts[k].append(torch.arange(1, len(token_crop_indices) + 1, device=v.device))
@@ -600,8 +602,6 @@ class PDBDataset(Dataset):
 
         cropped_graph = Data()
         for key, item in graph.items():
-            if 'bfactor' in key:
-                continue
             if torch.is_tensor(item) and len(item.shape) >= 1:
                 assert item.shape[0] == n_res, f"Shape mismatch for key {key}: {item.shape[0]} != {n_res}"
                 cropped_graph[key] = item[selected_indices]
