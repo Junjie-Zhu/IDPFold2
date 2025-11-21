@@ -27,7 +27,8 @@ def to_pdb_simple(
 ):
     n_samples, n_res, _ = atom_positions.shape
     residue_types = [rc.restype_1to3[rc.restypes[residue_ids[i].item()]] for i in range(n_res)]
-    chain_ids = [INT_TO_CHAIN[chain_ids[i].item()] for i in range(n_res)]
+    # chain_ids += chain_ids.min()  # make sure chain ids start from 0
+    # chain_ids = [INT_TO_CHAIN[chain_ids[i].item()] for i in range(n_res)]
 
     if accession_code is None:
         accession_code = f"samples_l{n_res}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -38,7 +39,7 @@ def to_pdb_simple(
             for i in range(atom_positions.shape[1]):
                 atom_name = 'CA'
                 resname = residue_types[i]
-                chain_idx = chain_ids[i]
+                chain_idx = 'A'
                 res_idx = i + 1
 
                 x, y, z = atom_positions[sample][i]
