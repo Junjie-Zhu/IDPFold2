@@ -353,11 +353,11 @@ def generating_predict(
 
     nsamples = batch["nsamples"].item() if isinstance(batch["nsamples"], torch.Tensor) else batch["nsamples"]
     nres = batch["nres"]
+    plm_embedding = batch["plm_emb"]
+    residue_type = batch["residue_type"]
     mask = batch["mask"] if 'mask' in batch else torch.ones(nsamples, nres).long().bool().to(device)
-    plm_embedding = batch["plm_emb"] if "plm_emb" in batch else None
-    residue_type = batch["residue_type"] if "residue_type" in batch else None
-    residue_idx = batch["residue_idx"] if "residue_idx" in batch else None
-    chains = batch["chains"] if "chains" in batch else None
+    residue_idx = batch["residue_idx"] if "residue_idx" in batch else torch.arange(nres.item()).unsqueeze(0).to(device)
+    chains = batch["chains"] if "chains" in batch else torch.ones(nres.item()).long().to(device)
 
     if len(mask.shape) == 1:
         mask = mask.unsqueeze(0).repeat(nsamples, 1)

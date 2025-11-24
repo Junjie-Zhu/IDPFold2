@@ -1,10 +1,11 @@
 import os
 import warnings
 from typing import List, Optional, Union
-
 import rootutils
 import datetime
 
+
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 import torch.distributed as dist
@@ -17,7 +18,7 @@ from src.model.protein_transformer import ProteinTransformerAF3
 from src.model.flow_matching.r3flow import R3NFlowMatcher
 from src.model.components.motif_factory import SingleMotifFactory
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
-from src.utils.pdb_utils import to_pdb_simple
+from src.utils.pdb_utils import to_pdb_simple, to_pdb
 from src.utils.cluster_utils import log_info
 from src.common.residue_constants import restypes
 
@@ -28,64 +29,77 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 class GenerationDataset(Dataset):
     def __init__(
             self,
+            csv_path: str,
+            plm_emb_dir: str,
             dt: float = 0.005,
             nsamples: Union[int, List[int]] = 10,
-            fasta_path: Optional[str] = None,
-            plm_emb_dir: Optional[str] = None,
-            nres: Optional[List[int]] = None,
+            load_multimer: bool = False,
     ):
         super().__init__()
         self.dt = dt
-        self.use_plm = fasta_path is not None
 
-        if self.use_plm and plm_emb_dir is not None: 
-            self.seqs = []
-            self.data_paths = []
-            with open(fasta_path, 'r') as f:
-                lines = f.readlines()
-                for line in lines:
-                    if line.startswith('>'):
-                        self.data_paths.append(os.path.join(plm_emb_dir, line[1:].strip() + '.pt'))
-                    else:
-                        self.seqs.append(get_resid(line.strip()))
-            
-            self.nres = [None] * len(self.data_paths)  # Placeholder
-        elif nres is not None:
-            self.seqs = [None] * len(nres)  # Placeholder
-            self.data_paths = [None] * len(nres)  # Placeholder
-            self.nres = [int(n) for n in nres]
-        else:
-            raise ValueError("One of 'plm_emb_dir' or 'nres' must be provided.")
+        assert os.path.isdir(plm_emb_dir), f"PLM embedding directory not found: {plm_emb_dir}"
+        self.seqs = []
+        self.data_paths = []
+        df = pd.read_csv(csv_path)
+        if not load_multimer:
+            self.seqs = df['sequence'].tolist()
+            self.data_paths = [os.path.join(plm_emb_dir, f"{name}.pt") for name in df['test_case'].tolist()]
 
-        # Consolidate nsamples handling
-        if isinstance(nsamples, int):
-            self.nsamples = [nsamples] * len(self.data_paths)
-        elif isinstance(nsamples, list):
-            if len(nsamples) != len(self.data_paths):
-                raise ValueError("Length of 'nsamples' list must match number of data points.")
-            self.nsamples = nsamples
+            # sort by sequence length
+            self.seqs, self.data_paths = zip(*sorted(zip(self.seqs, self.data_paths), key=lambda x: x[0].shape[0]))
+            self.seqs = list(self.seqs)
+            self.data_paths = list(self.data_paths)
         else:
-            raise TypeError(f"Unsupported type for 'nsamples': {type(nsamples)}. Expected int or list.")
+            self.seqs = [
+                torch.cat([get_resid(seq) for seq in df.iloc[i]['sequence'].split('/')], dim=0)
+                for i in range(len(df))
+            ]
+            self.data_paths = [[os.path.join(plm_emb_dir, f"{name}.pt")
+                                for name in df.iloc[i]['test_case'].split('/')]
+                               for i in range(len(df))]
+
+            # sort by sequence length
+            self.seqs, self.data_paths = zip(*sorted(zip(self.seqs, self.data_paths), key=lambda x: x[0].shape[0]))
+            self.seqs = list(self.seqs)
+            self.data_paths = list(self.data_paths)
+        self.nsamples = [nsamples] * len(self.data_paths)
+        self.load_multimer = load_multimer
 
     def __len__(self):
         return len(self.data_paths)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> dict:
         data = {
             "dt": self.dt,
             "nsamples": self.nsamples[idx],
         }
 
-        if self.use_plm:
-            assert os.path.isfile(self.data_paths[idx]), f"PLM embedding file {self.data_paths[idx]} not found."
+        if not self.load_multimer:
             plm_emb = torch.load(self.data_paths[idx])
+            assert plm_emb.shape[0] == len(self.seqs[idx]), f"Sequence length mismatch for {self.data_paths[idx]}"
             data["nres"] = plm_emb.shape[0]
             data["plm_emb"] = plm_emb
             data["name"] = os.path.basename(self.data_paths[idx]).replace('.pt', '')
             data["residue_type"] = self.seqs[idx]
-        else:
-            data["nres"] = self.nres[idx]
+            return data
 
+        log_info(f"Loading multimer PLM embeddings for {self.data_paths[idx]}")
+        plm_embs = [torch.load(path) for path in self.data_paths[idx]]
+        chains = torch.cat(
+            [torch.ones(plm_emb.shape[0], dtype=torch.long) + i for i, plm_emb in enumerate(plm_embs)],
+        dim=0)
+        residue_idx = torch.cat(
+            [torch.arange(plm_emb.shape[0], dtype=torch.long) for plm_emb in plm_embs],
+        dim=0)
+        plm_embs = torch.cat(plm_embs, dim=0)
+        assert plm_embs.shape[0] == len(self.seqs[idx]), f"Sequence length mismatch for {self.data_paths[idx]}"
+        data["nres"] = plm_embs.shape[0]
+        data["plm_emb"] = plm_embs
+        data["name"] = '_'.join([os.path.basename(path).replace('.pt', '') for path in self.data_paths[idx]])
+        data["residue_type"] = self.seqs[idx]
+        data["residue_idx"] = residue_idx
+        data["chains"] = chains
         return data
 
 
@@ -140,11 +154,11 @@ def main(args: DictConfig):
 
     # instantiate dataset
     dataset = GenerationDataset(
+        csv_path=args.data.csv_path,
+        plm_emb_dir=args.data.plm_emb_dir,
         dt=args.dt,
         nsamples=args.nsamples,
-        fasta_path=args.fasta_path,
-        plm_emb_dir=args.plm_emb_dir,
-        nres=args.nres,
+        load_multimer=args.data.load_multimer,
     )
     inference_loader = DataLoader(dataset, batch_size=1)
 
@@ -199,6 +213,7 @@ def main(args: DictConfig):
             else:
                 log_info(f"Split {inference_dict['nsamples']} samples into batches of {nsamples_per_batch} due to potential memory limit")
                 for i in range((args.nsamples - 1) // nsamples_per_batch + 1):
+                    log_info(f"Processing batch {i + 1} / {(args.nsamples - 1) // nsamples_per_batch + 1}")
                     inference_dict["nsamples"] = min(nsamples_per_batch, args.nsamples - i * nsamples_per_batch)
                     pred_structure_batch = generating_predict(
                         batch=inference_dict,
@@ -220,12 +235,21 @@ def main(args: DictConfig):
                     else:
                         pred_structure = torch.cat([pred_structure, pred_structure_batch], dim=0)
 
-            to_pdb_simple(
-                atom_positions=pred_structure * 10,  # nm to Angstrom
-                residue_ids=inference_dict["residue_type"],
-                output_dir=os.path.join(logging_dir, "samples"),
-                accession_code=inference_dict.get("name", [None])[0],
-            )
+            if 'chains' not in inference_dict.keys():
+                to_pdb_simple(
+                    atom_positions=pred_structure * 10,  # nm to Angstrom
+                    residue_ids=inference_dict["residue_type"],
+                    output_dir=os.path.join(logging_dir, "samples"),
+                    accession_code=inference_dict.get("name", [None])[0],
+                )
+            else:
+                to_pdb(
+                    atom_positions=pred_structure * 10,  # nm to Angstrom
+                    residue_ids=inference_dict["residue_type"],
+                    chain_ids=inference_dict["chains"],
+                    output_dir=os.path.join(logging_dir, "samples"),
+                    accession_code=inference_dict.get("name", [None])[0],
+                )
 
     # Clean up process group when finished
     if DIST_WRAPPER.world_size > 1:
