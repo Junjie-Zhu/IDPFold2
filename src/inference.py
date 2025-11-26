@@ -114,7 +114,7 @@ def get_resid(seq: str):
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="inference")
 def main(args: DictConfig):
-    logging_dir = os.path.join(args.logging_dir, f"INF_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
+    logging_dir = os.path.join(args.logging_dir, f"{args.prefix}_INF_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
     if DIST_WRAPPER.rank == 0:
         # update logging directory with current time
         if not os.path.isdir(args.logging_dir):
