@@ -58,7 +58,7 @@ data:
 model:
   training: True
   token_dim: 768  # dimension of the tokens in the sequence
-  nlayers: 15  # number of transformer layers
+  nlayers: 10  # number of transformer layers
   nheads: 12  # number of attn heads
   residual_mha: True  # whether to use a residual connection in the mha
   residual_transition: True  # whether to use a residual connection in the transition

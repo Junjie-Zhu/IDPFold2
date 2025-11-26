@@ -44,6 +44,7 @@ class GenerationDataset(Dataset):
         df = pd.read_csv(csv_path)
         if not load_multimer:
             self.seqs = df['sequence'].tolist()
+            self.seqs = [get_resid(seq) for seq in self.seqs]
             self.data_paths = [os.path.join(plm_emb_dir, f"{name}.pt") for name in df['test_case'].tolist()]
 
             # sort by sequence length
@@ -52,11 +53,11 @@ class GenerationDataset(Dataset):
             self.data_paths = list(self.data_paths)
         else:
             self.seqs = [
-                torch.cat([get_resid(seq) for seq in df.iloc[i]['sequence'].split('/')], dim=0)
+                torch.cat([get_resid(seq) for seq in df.iloc[i]['sequence'].split(':')], dim=0)
                 for i in range(len(df))
             ]
             self.data_paths = [[os.path.join(plm_emb_dir, f"{name}.pt")
-                                for name in df.iloc[i]['test_case'].split('/')]
+                                for name in df.iloc[i]['test_case'].split(':')]
                                for i in range(len(df))]
 
             # sort by sequence length
@@ -96,7 +97,7 @@ class GenerationDataset(Dataset):
         assert plm_embs.shape[0] == len(self.seqs[idx]), f"Sequence length mismatch for {self.data_paths[idx]}"
         data["nres"] = plm_embs.shape[0]
         data["plm_emb"] = plm_embs
-        data["name"] = '_'.join([os.path.basename(path).replace('.pt', '') for path in self.data_paths[idx]])
+        data["name"] = ':'.join([os.path.basename(path).replace('.pt', '') for path in self.data_paths[idx]])
         data["residue_type"] = self.seqs[idx]
         data["residue_idx"] = residue_idx
         data["chains"] = chains
@@ -154,11 +155,11 @@ def main(args: DictConfig):
 
     # instantiate dataset
     dataset = GenerationDataset(
-        csv_path=args.data.csv_path,
-        plm_emb_dir=args.data.plm_emb_dir,
+        csv_path=args.csv_path,
+        plm_emb_dir=args.plm_emb_dir,
         dt=args.dt,
         nsamples=args.nsamples,
-        load_multimer=args.data.load_multimer,
+        load_multimer=args.load_multimer,
     )
     inference_loader = DataLoader(dataset, batch_size=1)
 
@@ -238,15 +239,15 @@ def main(args: DictConfig):
             if 'chains' not in inference_dict.keys():
                 to_pdb_simple(
                     atom_positions=pred_structure * 10,  # nm to Angstrom
-                    residue_ids=inference_dict["residue_type"],
+                    residue_ids=inference_dict["residue_type"].squeeze(),
                     output_dir=os.path.join(logging_dir, "samples"),
                     accession_code=inference_dict.get("name", [None])[0],
                 )
             else:
                 to_pdb(
                     atom_positions=pred_structure * 10,  # nm to Angstrom
-                    residue_ids=inference_dict["residue_type"],
-                    chain_ids=inference_dict["chains"],
+                    residue_ids=inference_dict["residue_type"].squeeze(),
+                    chain_ids=inference_dict["chains"].squeeze(),
                     output_dir=os.path.join(logging_dir, "samples"),
                     accession_code=inference_dict.get("name", [None])[0],
                 )
