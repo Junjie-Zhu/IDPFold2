@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -36,12 +37,14 @@ class GenerationDataset(Dataset):
             load_multimer: bool = False,
     ):
         super().__init__()
-        self.dt = dt
+        df = pd.read_csv(csv_path)
 
-        assert os.path.isdir(plm_emb_dir), f"PLM embedding directory not found: {plm_emb_dir}"
+        if not os.path.isdir(plm_emb_dir):
+            self.get_esm_embedding(df, plm_emb_dir, load_multimer)
+            
+        self.dt = dt
         self.seqs = []
         self.data_paths = []
-        df = pd.read_csv(csv_path)
         if not load_multimer:
             self.seqs = df['sequence'].tolist()
             self.seqs = [get_resid(seq) for seq in self.seqs]
@@ -102,6 +105,46 @@ class GenerationDataset(Dataset):
         data["residue_idx"] = residue_idx
         data["chains"] = chains
         return data
+
+    @staticmethod
+    def get_esm_embedding(df, plm_emb_dir, load_multimer=False):
+        log_info(f"PLM embedding directory not found: {plm_emb_dir}, creating embeddings")
+        os.makedirs(plm_emb_dir, exist_ok=True)
+
+        import esm
+        model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
+        if torch.cuda.device_count() > 0:
+            device = torch.device("cuda:{}".format(DIST_WRAPPER.local_rank))
+        else:
+            device = torch.device("cpu")
+        model = model.to(device)
+        model.eval()
+        BATCH_SIZE = 1
+
+        if not load_multimer:
+            seq_data = [(row['test_case'], row['sequence']) for idx, row in df.iterrows()]
+        else:
+            seq_data = []
+            for i, row in df.iterrows():
+                names = row['test_case'].split(':')
+                sequences = row['sequence'].split(':')
+                seq_data.extend([(names[j], sequences[j]) for j in range(len(names))])
+
+        batch_converter = alphabet.get_batch_converter()
+        total_sequences, num_batches = len(seq_data), len(seq_data) // BATCH_SIZE + (len(seq_data) % BATCH_SIZE != 0)
+        for batch in tqdm(range(num_batches)):
+            start_idx, end_idx = batch * BATCH_SIZE, (batch + 1) * BATCH_SIZE
+            batch_labels, batch_strs, batch_tokens = batch_converter(seq_data[start_idx:end_idx])
+            batch_tokens, batch_lens = batch_tokens.to(device), (batch_tokens != alphabet.padding_idx).sum(1)
+
+            with torch.no_grad():
+                token_representations = model(batch_tokens, repr_layers=[33], return_contacts=True)["representations"][33]
+
+            for i, tokens_len in enumerate(batch_lens):
+                torch.save(token_representations[i, 1: tokens_len - 1].cpu(), os.path.join(plm_emb_dir, f"{batch_labels[i]}.pt"))
+
+            del batch_labels, batch_strs, batch_tokens, token_representations
+            torch.cuda.empty_cache()
 
 
 def get_resid(seq: str):
@@ -171,6 +214,12 @@ def main(args: DictConfig):
     assert os.path.isfile(args.ckpt_dir), f"Checkpoint file not found: {args.ckpt_dir}"
     checkpoint = torch.load(args.ckpt_dir, map_location=device)
     if DIST_WRAPPER.world_size > 1:
+        model = DDP(
+            model,
+            device_ids=[DIST_WRAPPER.local_rank],
+            output_device=DIST_WRAPPER.local_rank,
+            static_graph=True,
+        )
         model.module.load_state_dict(checkpoint['model_state_dict'])
     else:
         model.load_state_dict(checkpoint['model_state_dict'])
