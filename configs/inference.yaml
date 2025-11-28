@@ -1,19 +1,30 @@
 # configurations for inference
 prefix: DEFAULT
+
+# Data paths
 csv_path: null
-plm_emb_dir: null 
-nres: [50, 100, 150]
+plm_emb_dir: null
+
+# Inference parameters
 nsamples: 100
-max_batch_length: 20000
+max_batch_length: 3500  # should revise based on GPU memory, currently tested on V100-32GB
 dt: 0.005
 target_pred: v
+
+# checkpoint paths
+ckpt_dir: null
+ag_dir: null
+
+# Dataset and dataloader parameters
+load_multimer: False
+num_workers: 6
+
+# Other parameters
 seed: 42
 deterministic: False
 logging_dir: "./logs"  # better absolute path, to revise
-ckpt_dir: null
-ag_dir: null
-load_multimer: False
 
+# conditioning options
 motif_conditioning: False
 moe_conditioning: False
 self_conditioning: False
@@ -31,8 +42,6 @@ schedule:
   schedule_p: 2.0
 
 guidance_weight: 1.0   # guidance model weights, 1.0 for w/o CFG and autoguidance, 0.0 for excluding the main model. We typically set this value greater than 1
-
-# Autoguidance
 autoguidance_ratio: 0.0   # a value between 0 and 1, determining the proportion of autoguidance v.s. classifier-free guidance, 1.0 for all autoguidance, 0.0 for all CFG
 autoguidance_ckpt_path: null
 

@@ -1,3 +1,4 @@
+import math
 import os
 import warnings
 from typing import List, Optional, Union
@@ -7,7 +8,7 @@ import datetime
 
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, DistributedSampler
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
@@ -41,7 +42,7 @@ class GenerationDataset(Dataset):
 
         if not os.path.isdir(plm_emb_dir):
             self.get_esm_embedding(df, plm_emb_dir, load_multimer)
-            
+
         self.dt = dt
         self.seqs = []
         self.data_paths = []
@@ -145,6 +146,7 @@ class GenerationDataset(Dataset):
 
             del batch_labels, batch_strs, batch_tokens, token_representations
             torch.cuda.empty_cache()
+        log_info(f"Finished creating PLM embeddings in {plm_emb_dir}, total {total_sequences} sequences")
 
 
 def get_resid(seq: str):
@@ -163,7 +165,8 @@ def main(args: DictConfig):
         if not os.path.isdir(args.logging_dir):
             os.makedirs(args.logging_dir)
         os.makedirs(logging_dir)
-        os.makedirs(os.path.join(logging_dir, "samples"))  # for saving checkpoints
+        os.makedirs(os.path.join(logging_dir, "samples"))  # for saving samples
+        os.makedirs(os.path.join(logging_dir, "tmp"))  # for saving raw samples from each rank or batch
 
         # save current configuration in logging directory
         with open(f"{logging_dir}/config.yaml", "w") as f:
@@ -204,7 +207,11 @@ def main(args: DictConfig):
         nsamples=args.nsamples,
         load_multimer=args.load_multimer,
     )
-    inference_loader = DataLoader(dataset, batch_size=1)
+    inference_loader = DataLoader(
+        dataset,
+        batch_size=1,
+        num_workers=args.num_workers,
+    )  # use plain dataloader, handling DDP inside training loop
 
     # instantiate model
     model = ProteinTransformerAF3(**args.model).to(device)
@@ -235,16 +242,37 @@ def main(args: DictConfig):
         else:
             model_ag.load_state_dict(checkpoint_ag['model_state_dict'])
 
-    # sanity check
     torch.cuda.empty_cache()
     model.eval()
     with torch.inference_mode():
-        for inference_iter, inference_dict in tqdm(enumerate(inference_loader)):
+        loader_iter = tqdm(
+            enumerate(inference_loader),
+            disable=(DIST_WRAPPER.rank != 0)) if DIST_WRAPPER.rank == 0 else enumerate(inference_loader)
+        for inference_iter, inference_dict in loader_iter:
             torch.cuda.empty_cache()
             inference_dict = to_device(inference_dict, device)
 
-            nsamples_per_batch = args.max_batch_length // inference_dict['nres'][0]
-            if nsamples_per_batch > args.nsamples:
+            # assign samples to each rank
+            nsamples_per_rank = inference_dict['nsamples'] // DIST_WRAPPER.world_size
+            if DIST_WRAPPER.rank < inference_dict['nsamples'] % DIST_WRAPPER.world_size:
+                nsamples_per_rank += 1
+
+            # split samples based on memory limit
+            nsamples_per_batch = max(1, args.max_batch_length // inference_dict['nres'][0])
+
+            nsamples_generated = 0
+            batch_idx = 0
+            show_inner_bar = nsamples_per_rank > nsamples_per_batch
+            if show_inner_bar:
+                total_batches = math.ceil(nsamples_per_rank / nsamples_per_batch)
+                pbar_inner = tqdm(total=total_batches,
+                                  desc=f"Rank {DIST_WRAPPER.rank}",
+                                  position=DIST_WRAPPER.rank,
+                                  leave=False)
+
+            while nsamples_generated < nsamples_per_rank:
+                current_batch_size = min(nsamples_per_batch, nsamples_per_rank - nsamples_generated)
+                inference_dict["nsamples"] = current_batch_size
                 pred_structure = generating_predict(
                     batch=inference_dict,
                     flow_matching=flow_matching,
@@ -260,46 +288,48 @@ def main(args: DictConfig):
                     self_conditioning=args.self_conditioning,
                     device=device,
                 )
-            else:
-                log_info(f"Split {inference_dict['nsamples']} samples into batches of {nsamples_per_batch} due to potential memory limit")
-                for i in range((args.nsamples - 1) // nsamples_per_batch + 1):
-                    log_info(f"Processing batch {i + 1} / {(args.nsamples - 1) // nsamples_per_batch + 1}")
-                    inference_dict["nsamples"] = min(nsamples_per_batch, args.nsamples - i * nsamples_per_batch)
-                    pred_structure_batch = generating_predict(
-                        batch=inference_dict,
-                        flow_matching=flow_matching,
-                        model=model,
-                        model_ag=model_ag if args.autoguidance_ratio > 0.0 and args.ag_dir is not None else None,
-                        motif_factory=motif_factory if args.motif_conditioning else None,
-                        target_pred=args.target_pred,
-                        guidance_weight=args.guidance_weight,
-                        autoguidance_ratio=args.autoguidance_ratio,
-                        schedule_args=args.schedule,
-                        sampling_args=args.sampling,
-                        motif_conditioning=args.motif_conditioning,
-                        self_conditioning=args.self_conditioning,
-                        device=device,
+                pred_structure = pred_structure.detach().cpu()
+                if 'chains' not in inference_dict.keys():
+                    to_pdb_simple(
+                        atom_positions=pred_structure * 10,
+                        residue_ids=inference_dict['residue_type'].squeeze(),
+                        output_dur=os.path.join(logging_dir, "tmp"),
+                        accession_code=f"{inference_dict['name'][0]}_rank_{DIST_WRAPPER.rank}_batch_{batch_idx}",
                     )
-                    if i == 0:
-                        pred_structure = pred_structure_batch
-                    else:
-                        pred_structure = torch.cat([pred_structure, pred_structure_batch], dim=0)
+                else:
+                    to_pdb(
+                        atom_positions=pred_structure * 10,
+                        residue_ids=inference_dict["residue_type"].squeeze(),
+                        chain_ids=inference_dict["chains"].squeeze(),
+                        output_dir=os.path.join(logging_dir, "tmp"),
+                        accession_code=f"{inference_dict['name'][0]}_rank_{DIST_WRAPPER.rank}_batch_{batch_idx}",
+                    )
 
-            if 'chains' not in inference_dict.keys():
-                to_pdb_simple(
-                    atom_positions=pred_structure * 10,  # nm to Angstrom
-                    residue_ids=inference_dict["residue_type"].squeeze(),
-                    output_dir=os.path.join(logging_dir, "samples"),
-                    accession_code=inference_dict.get("name", [None])[0],
-                )
-            else:
-                to_pdb(
-                    atom_positions=pred_structure * 10,  # nm to Angstrom
-                    residue_ids=inference_dict["residue_type"].squeeze(),
-                    chain_ids=inference_dict["chains"].squeeze(),
-                    output_dir=os.path.join(logging_dir, "samples"),
-                    accession_code=inference_dict.get("name", [None])[0],
-                )
+                nsamples_generated += current_batch_size
+                batch_idx += 1
+                if show_inner_bar:
+                    pbar_inner.update(1)
+            if show_inner_bar:
+                pbar_inner.close()
+
+            # gather all pdb files to one
+            if DIST_WRAPPER.rank == 0:
+                log_info(f"Gathering samples for {inference_dict['name'][0]}")
+                tmp_files = [i for i in os.listdir(os.path.join(logging_dir, "tmp"))
+                             if i.startswith(inference_dict['name'][0])]
+                with open(os.path.join(logging_dir, "samples", f"{inference_dict['name'][0]}.pdb"), 'w') as outfile:
+                    model_idx = 1
+                    for f in tmp_files:
+                        with open(os.path.join(logging_dir, "tmp", f), 'r') as infile:
+                            for line in infile:
+                                if line.startswith("MODEL"):
+                                    outfile.write(f"MODEL {model_idx}\n")  # reindex model number
+                                    model_idx += 1
+                                else:
+                                    outfile.write(line)
+                        # remove tmp files
+                        os.remove(os.path.join(logging_dir, "tmp", f))
+                log_info(f"Saved gathered samples to {os.path.join(logging_dir, 'samples', f'{inference_dict['name'][0]}.pdb')}")
 
     # Clean up process group when finished
     if DIST_WRAPPER.world_size > 1:

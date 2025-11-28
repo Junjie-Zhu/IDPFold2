@@ -461,9 +461,9 @@ class R3NFlowMatcher:
         nsteps = math.ceil(
             1.0 / dt
         )  # below it uses nsteps + 1 since we need to include limits 0 and 1, but we never evaluate at 1
-        print(
-            f"Sampling: nsteps={nsteps}, schedule={schedule_mode}, param={schedule_p}, gt={gt_mode}, gt_p={gt_p}, gt_clamp={gt_clamp_val}, temp={sc_scale_noise}"
-        )
+        # print(
+        #     f"Sampling: nsteps={nsteps}, schedule={schedule_mode}, param={schedule_p}, gt={gt_mode}, gt_p={gt_p}, gt_clamp={gt_clamp_val}, temp={sc_scale_noise}"
+        # )
         # print("mask.shape:", mask.shape)
 
         ts = self.get_schedule(
@@ -493,7 +493,7 @@ class R3NFlowMatcher:
                 x_motif = (x_motif - mean_w_mask(x_motif, fixed_sequence_mask, keepdim=True)) * fixed_sequence_mask[
                     ..., None]
 
-            for step in tqdm(range(nsteps)):
+            for step in range(nsteps):
                 t = ts[step] * torch.ones(nsamples, device=device)  # [nsamples]
                 dt = ts[step + 1] - ts[step]  # float
                 gt_step = gt[step]  # float
