@@ -329,7 +329,6 @@ def main(args: DictConfig):
                                     outfile.write(line)
                         # remove tmp files
                         os.remove(os.path.join(logging_dir, "tmp", f))
-                log_info(f"Saved gathered samples to {os.path.join(logging_dir, 'samples', f'{inference_dict['name'][0]}.pdb')}")
 
     # Clean up process group when finished
     if DIST_WRAPPER.world_size > 1:
