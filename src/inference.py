@@ -159,7 +159,8 @@ def get_resid(seq: str):
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="inference")
 def main(args: DictConfig):
-    logging_dir = os.path.join(args.logging_dir, f"{args.prefix}_INF_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
+    logging_dir = os.path.join(args.logging_dir,
+                               f"{args.prefix}_INF_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
     if DIST_WRAPPER.rank == 0:
         # update logging directory with current time
         if not os.path.isdir(args.logging_dir):
@@ -194,10 +195,10 @@ def main(args: DictConfig):
             backend="nccl", timeout=datetime.timedelta(seconds=timeout_seconds)
         )
     # All ddp process got the same seed
-    seed_everything(
-        seed=args.seed,
-        deterministic=args.deterministic,
-    )
+    # seed_everything(
+    #     seed=args.seed,
+    #     deterministic=args.deterministic,
+    # )
 
     # instantiate dataset
     dataset = GenerationDataset(
@@ -230,6 +231,7 @@ def main(args: DictConfig):
         model.module.load_state_dict(checkpoint['model_state_dict'])
     else:
         model.load_state_dict(checkpoint['model_state_dict'])
+    del checkpoint
     if DIST_WRAPPER.rank == 0:
         log_info(f"Loaded checkpoint from {args.ckpt_dir}")
         log_info(f"Model has {sum(p.numel() for p in model.parameters()) / 1000000:.2f}M parameters")
@@ -241,6 +243,7 @@ def main(args: DictConfig):
             model_ag.module.load_state_dict(checkpoint_ag['model_state_dict'])
         else:
             model_ag.load_state_dict(checkpoint_ag['model_state_dict'])
+        del checkpoint_ag
 
     torch.cuda.empty_cache()
     model.eval()
@@ -262,13 +265,8 @@ def main(args: DictConfig):
 
             nsamples_generated = 0
             batch_idx = 0
-            show_inner_bar = nsamples_per_rank > nsamples_per_batch
-            if show_inner_bar:
-                total_batches = math.ceil(nsamples_per_rank / nsamples_per_batch)
-                pbar_inner = tqdm(total=total_batches,
-                                  desc=f"Rank {DIST_WRAPPER.rank}",
-                                  position=DIST_WRAPPER.rank,
-                                  leave=False)
+            total_batches = math.ceil(nsamples_per_rank / nsamples_per_batch)
+            pbar_inner = tqdm(total=total_batches, leave=False) if DIST_WRAPPER.rank == 0 else None
 
             while nsamples_generated < nsamples_per_rank:
                 current_batch_size = min(nsamples_per_batch, nsamples_per_rank - nsamples_generated)
@@ -293,7 +291,7 @@ def main(args: DictConfig):
                     to_pdb_simple(
                         atom_positions=pred_structure * 10,
                         residue_ids=inference_dict['residue_type'].squeeze(),
-                        output_dur=os.path.join(logging_dir, "tmp"),
+                        output_dir=os.path.join(logging_dir, "tmp"),
                         accession_code=f"{inference_dict['name'][0]}_rank_{DIST_WRAPPER.rank}_batch_{batch_idx}",
                     )
                 else:
@@ -305,15 +303,18 @@ def main(args: DictConfig):
                         accession_code=f"{inference_dict['name'][0]}_rank_{DIST_WRAPPER.rank}_batch_{batch_idx}",
                     )
 
-                nsamples_generated += current_batch_size
+                nsamples_generated += current_batch_size  # may raise error on ascend 910b
                 batch_idx += 1
-                if show_inner_bar:
+                if DIST_WRAPPER.rank == 0:
                     pbar_inner.update(1)
-            if show_inner_bar:
+
+            # wait for all ranks to finish
+            if DIST_WRAPPER.world_size > 1:
+                dist.barrier(async_op=False)
+
+            if DIST_WRAPPER.rank == 0:
                 pbar_inner.close()
 
-            # gather all pdb files to one
-            if DIST_WRAPPER.rank == 0:
                 log_info(f"Gathering samples for {inference_dict['name'][0]}")
                 tmp_files = [i for i in os.listdir(os.path.join(logging_dir, "tmp"))
                              if i.startswith(inference_dict['name'][0])]
@@ -325,8 +326,11 @@ def main(args: DictConfig):
                                 if line.startswith("MODEL"):
                                     outfile.write(f"MODEL {model_idx}\n")  # reindex model number
                                     model_idx += 1
+                                elif line.strip() == "END":
+                                    continue
                                 else:
                                     outfile.write(line)
+                            outfile.write("END\n")
                         # remove tmp files
                         os.remove(os.path.join(logging_dir, "tmp", f))
 

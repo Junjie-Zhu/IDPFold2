@@ -3,12 +3,15 @@ import sys
 import pickle
 import multiprocessing as mp
 from functools import partial
+import warnings
 
 import numpy as np
 import biotite.structure.io as strucio
 import biotite.structure as struc
 from biotite.structure.io import dcd
 import tqdm
+
+warnings.filterwarnings('ignore', category=UserWarning)
 
 
 def main():
@@ -39,25 +42,39 @@ def process_fn(system, pred_dir):
     predict = strucio.load_structure(pred_path)
 
     # Calculate structural properties
+    ca_dist_predict, clashes = ca_dist(predict)
+    rg_predict = rg(predict)
+    re2e_predict = re2e(predict)
+
+    if np.sum(clashes) > 0:
+        print(f'Warning: {np.sum(clashes)} clashed models found in {system}')
+
+    # filter clashed models
+    ca_dist_predict = ca_dist_predict[~clashes]
+    rg_predict = rg_predict[~clashes]
+    re2e_predict = re2e_predict[~clashes]
+
     return {
         'name': system,
-        'ca_dist_predict': ca_dist(predict),
-        'rg_predict': rg(predict),
-        're2e_predict': re2e(predict),
+        'ca_dist_predict': ca_dist_predict,
+        'rg_predict': rg_predict,
+        're2e_predict': re2e_predict,
     }
 
 
 def ca_dist(structures):
     dist = []
+    clash = []
     for model in structures:
         model = model[model.atom_name == 'CA']
         coords = model.coord
 
         # calculate neighbor distances
         coords_diff = coords[1:, :] - coords[:-1, :]
-        dist.append(np.linalg.norm(coords_diff, axis=1))
-
-    return np.stack(dist)
+        dists = np.linalg.norm(coords_diff, axis=1)
+        dist.append(dists)
+        clash.append(any(dists > 12.0))
+    return np.stack(dist), np.array(clash)
 
 
 def rg(structures):
