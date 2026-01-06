@@ -175,7 +175,7 @@ class ChainBreakPerResidueSeqFeat(Feature):
         elif "chains" in batch:
             chain_idx = batch["chains"]  # [b, n]
             chain_breaks = (chain_idx[:, 1:] != chain_idx[:, :-1]).float()  # [b, n-1]
-            chain_breaks = F.pad(chain_breaks, (0, 1), mode="constant", value=1.0)  # [b, n]
+            chain_breaks = F.pad(chain_breaks, (0, 1), mode="constant", value=0.0)  # [b, n]
         else:
             self.assert_defaults_allowed(batch, "Chain break per residue sequence")
             xt = batch["x_t"]  # [b, n, 3]

@@ -60,14 +60,22 @@ class GenerationDataset(Dataset):
                 torch.cat([get_resid(seq) for seq in df.iloc[i]['sequence'].split(':')], dim=0)
                 for i in range(len(df))
             ]
-            self.data_paths = [[os.path.join(plm_emb_dir, f"{name}.pt")
-                                for name in df.iloc[i]['test_case'].split(':')]
-                               for i in range(len(df))]
+            self.data_paths = []
+            for i, row in df.iterrows():
+                name = row['test_case']
+                seq_num = len(row['sequence'].split(':'))
+
+                if 'chain_ids' not in df.columns:
+                    paths = [os.path.join(plm_emb_dir, f"{name}_{j+1}.pt") for j in range(seq_num)]
+                else:
+                    chain_ids = row['chain_ids'].split(':')
+                    assert len(chain_ids) == seq_num, f"Chain IDs length mismatch for {name}"
+                    paths = [os.path.join(plm_emb_dir, f"{name}_{chain_ids[j]}.pt") for j in range(seq_num)]
+                self.data_paths.append(paths)
 
             # sort by sequence length
-            self.seqs, self.data_paths = zip(*sorted(zip(self.seqs, self.data_paths), key=lambda x: x[0].shape[0]))
+            self.seqs, self.data_paths = zip(*sorted(zip(self.seqs, self.data_paths), key=lambda x: x[0].shape[0], reverse=True))
             self.seqs = list(self.seqs)
-            self.data_paths = list(self.data_paths)
         self.nsamples = [nsamples] * len(self.data_paths)
         self.load_multimer = load_multimer
 
@@ -89,7 +97,6 @@ class GenerationDataset(Dataset):
             data["residue_type"] = self.seqs[idx]
             return data
 
-        log_info(f"Loading multimer PLM embeddings for {self.data_paths[idx]}")
         plm_embs = [torch.load(path) for path in self.data_paths[idx]]
         chains = torch.cat(
             [torch.ones(plm_emb.shape[0], dtype=torch.long) + i for i, plm_emb in enumerate(plm_embs)],
