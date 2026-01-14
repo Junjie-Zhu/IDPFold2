@@ -216,5 +216,7 @@ Thank [Z. Zheng](https://github.com/Immortals-33) and [Z. Fan](https://github.co
 
 The codebase is mainly constructed on [Proteina](https://github.com/NVIDIA-Digital-Bio/proteina).
 
+The generated structures are backmapped with [cg2all](https://github.com/huhlim/cg2all).
+
 Thank the open-source benchmarks [BioEmu-Benchmarks](https://github.com/microsoft/bioemu-benchmarks/tree/main/bioemu_benchmarks) and [PeptoneBench](https://github.com/PeptoneLtd/peptonebench/tree/main).
 
