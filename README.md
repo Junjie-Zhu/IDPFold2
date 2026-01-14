@@ -5,6 +5,8 @@
 
 Implementation for [***Extending Conformational Ensemble Prediction to Multidomain Proteins and Protein Complex***]().
 
+***Under construction***
+
 ## Description
 
 ***IDPFold2*** is a generative framework that models the heterogenous protein thermodynamics by integrating a Mixture-of-Experts architecture into the flow matching framework. The model is trained on a hybrid set of PDB, [mdCATH](https://github.com/compsciencelab/mdCATH), [IDRome-o](https://zenodo.org/records/17306061) and [AF-CALVADOS](https://github.com/KULL-Centre/_2025_buelow_AF-CALVADOS); and tested on [BioEmu-Benchmarks](https://github.com/microsoft/bioemu-benchmarks/tree/main/bioemu_benchmarks) and [PeptoneBench](https://github.com/PeptoneLtd/peptonebench/tree/main). 
