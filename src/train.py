@@ -76,23 +76,23 @@ def main(args: DictConfig):
         deterministic=args.deterministic,
     )
 
-    # dataselector = PDBDataSelector(
-    #     data_dir=args.data.data_dir,
-    #     fraction=args.data.fraction,
-    #     molecule_type=args.data.molecule_type,
-    #     experiment_types=args.data.experiment_types,
-    #     min_length=args.data.min_length,
-    #     max_length=args.data.max_length,
-    #     oligomeric_min=args.data.oligomeric_min,
-    #     oligomeric_max=args.data.oligomeric_max,
-    #     best_resolution=args.data.best_resolution,
-    #     worst_resolution= args.data.worst_resolution,
-    #     has_ligands=[],
-    #     remove_ligands=[],
-    #     remove_non_standard_residues=True,
-    #     remove_pdb_unavailable=True,
-    #     exclude_ids=[]
-    # ) if args.data.molecule_type is not None else None
+    dataselector = PDBDataSelector(
+        data_dir=args.data.data_dir,
+        fraction=args.data.fraction,
+        molecule_type=args.data.molecule_type,
+        experiment_types=args.data.experiment_types,
+        min_length=args.data.min_length,
+        max_length=args.data.max_length,
+        oligomeric_min=args.data.oligomeric_min,
+        oligomeric_max=args.data.oligomeric_max,
+        best_resolution=args.data.best_resolution,
+        worst_resolution= args.data.worst_resolution,
+        has_ligands=[],
+        remove_ligands=[],
+        remove_non_standard_residues=True,
+        remove_pdb_unavailable=True,
+        exclude_ids=[]
+    ) if args.data.molecule_type is not None else None
 
     # instantiate dataset
     data_module = PDBDataModule(
@@ -100,7 +100,7 @@ def main(args: DictConfig):
         dataselector=None,
         datasplitter=PDBDataSplitter(
             data_dir=args.data.data_dir,
-            train_val_test=args.data.train_val_test,
+            train_val_test=args.data.train_val_prop,
             split_type=args.data.split_type,
             split_sequence_similarity=args.data.split_sequence_similarity,
             overwrite_sequence_clusters=False

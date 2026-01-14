@@ -40,7 +40,7 @@ class GenerationDataset(Dataset):
         super().__init__()
         df = pd.read_csv(csv_path)
 
-        if not os.path.isdir(plm_emb_dir):
+        if not os.path.isdir(plm_emb_dir) or len(os.listdir(plm_emb_dir)) < len(df):
             self.get_esm_embedding(df, plm_emb_dir, load_multimer)
 
         self.dt = dt
@@ -209,7 +209,7 @@ def main(args: DictConfig):
 
     # instantiate dataset
     dataset = GenerationDataset(
-        csv_path=args.csv_path,
+        csv_path=args.csv_dir,
         plm_emb_dir=args.plm_emb_dir,
         dt=args.dt,
         nsamples=args.nsamples,

@@ -2,7 +2,7 @@
 prefix: DEFAULT
 
 # Data paths
-csv_path: null
+csv_dir: null
 plm_emb_dir: null
 
 # Inference parameters

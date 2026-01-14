@@ -21,7 +21,7 @@ from src.model.components.af3_modules import (
     AdaptiveLayerNormOutputScale,
     Transition,
 )
-from src.model.components.moe_modules import MoE
+from src.model.components.moe_modules_torch import MoE
 
 
 class MultiHeadAttention(torch.nn.Module):

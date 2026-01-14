@@ -50,7 +50,7 @@ data:
   oligomeric_max: null
   best_resolution: null
   worst_resolution: null
-  train_val_test: [0.99, 0.01]
+  train_val_prop: [0.99, 0.01]
   split_type: "sequence_similarity"
   split_sequence_similarity: 0.9
   overwrite_sequence_clusters: False
