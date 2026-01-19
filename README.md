@@ -175,7 +175,7 @@ python src/train.py \
   * `{data_dir}.csv`: Metadata for all training data, created after features are extracted.
   * `seq_{data_dir}.csv`: Sequences, used for further clustering.
   * `cluster_seqid_{split_sequence_similarity}_{data_dir}.tsv/fasta`: Cluster info.
-* `data.plm_emb_dir`: Directory to PLM embeddings. For training you have to extract the embeddings first.
+* `data.plm_emb_dir`: Directory to PLM embeddings. For training you have to extract the embeddings first, you may refer to `scripts/get_esm_embedding.py` for this step.
 
 You can find all arguments in `configs/train.yaml`. Distributed training is supported with `torchrun`, but **training across multiple machines is not supported**. Main reason for this is that device-level balance loss in MoE is not implemented, and training across machines may result in unexpected imbalanced expert assignment.
 
@@ -204,7 +204,65 @@ python src/train.py \
 
 ## Quick Evaluation
 
-In preparation.
+We provided post-processing scripts in the [scripts](scripts) directory, enabling quick evaluation of generated ensembles. We also provided some revised scripts from BioEmu-Benchmarks or PeptoneBench in the [benchmarks](benchmarks) directory, to calculate RMSD, native contacts, TiCA and reweighted SAXS/CS/PRE/RDC profiles. You may also refer to [Zenodo](https://zenodo.org/records/18239596) for plotting scripts (currently not uploaded, in preparation).
+
+Radius of gyration (Rg) and end-to-end distance (Re2e) can be quickly calculated by the following command:
+
+```bash
+python scripts/quick_analysis.py /PATH/TO/GENERATED/ENSEMBLE
+```
+
+### Backmapping
+
+To convert generated ensembles to all-atom structures, you have to install [cg2all](https://github.com/huhlim/cg2all) first.
+
+```bash
+convert_cg2all  # to test if cg2all is correctly installed
+
+export OMP_NUM_THREAD=2
+python scripts/_cg2all.py -i /PATH/TO/GENERATED/ENSEMBLE -o /PATH/TO/OUTPUT/STRUCTURES --num_proc 20
+```
+
+**Note: **You may have to adjust `OMP_NUM_THREAD` and `num_proc` (and `batch size`) for higher efficiency. Current setting works best in our practice with 40 cpu cores.
+
+### RMSD and Native Contact
+
+You have to first download information about the [BioEmu-Benchmarks](https://github.com/microsoft/bioemu-benchmarks/tree/main/bioemu_benchmarks) before calculating RMSDs and native contacts. Running the following script will extract both local and global RMSDs against reference structures, and fraction of native contacts for local unfolding cases.
+
+```bash
+python benchmarks/compare_to_multi_conf.py /PATH/TO/GENERATED/ENSEMBLE
+```
+
+### Reweighting
+
+First download experimental data and useful information from [PeptoneBench (Zenodo link)](https://zenodo.org/record/17306061/files/PeptoneDBs.tar.gz), calculating SAXS/CS/PRE/RDC following the PeptoneBench protocols. Then you may use the following scripts for reweighting and analysis.
+
+```bash
+# first analyze SAXS and CS data
+python analyze_saxs_integrative.py -i /PATH/TO/SAXS/PROFILES -e /PATH/TO/EXP/DATA
+python analyze_cs_integrative.py \
+    -i /PATH/TO/CS/PROFILES \
+    -e /PATH/TO/EXP/DATA \
+    --bmrb_path cs_stat_aa_filt.csv \
+    --info_path PeptoneDB-Integrative.csv
+    
+# then analyze PRE and RDC data
+python analyze_pre_integrative.py \
+	-i /PATH/TO/SAXS/PROFILES \
+	-e /PATH/TO/EXP/DATA \
+	--pre_path /PATH/TO/PRE/PROFILES
+python analyze_pre_integrative.py \
+	-i /PATH/TO/CS/PROFILES \
+	-e /PATH/TO/EXP/DATA \
+	--rdc_path /PATH/TO/RDC/PROFILES
+    --info_path PeptoneDB-Integrative.csv
+```
+
+**Important arguments:**
+
+* `bmrb_path` in analyzing CS data: download from [BMRB Chemical Shift Statistics](https://bmrb.io/ref_info/)
+* `i` in analyzing PRE/RDC should be path to SAXS/CS data respectively in order to use the pre-calculated reweighting information.
+* `e` and `info_path` denotes information provided by PeptoneDB-Integrative.
 
 ## Contact
 

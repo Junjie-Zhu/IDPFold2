@@ -15,9 +15,8 @@ warnings.filterwarnings('ignore', category=UserWarning)
 
 
 def main():
-    output_dir = sys.argv[1]
-    pred_dir = os.path.join(output_dir, 'samples')
-
+    pred_dir = sys.argv[1]
+    assert os.path.exists(pred_dir), f'Prediction directory {pred_dir} does not exist.'
     system_names = [f.replace('.pdb', '') for f in os.listdir(pred_dir) if f.endswith('.pdb')]
 
     _process_fn = partial(process_fn, pred_dir=pred_dir)
@@ -30,7 +29,7 @@ def main():
             results.append(_process_fn(system))
 
     results = consolidate_results(results)
-    with open(os.path.join(output_dir, 'metrics.pkl'), 'wb') as f:
+    with open(os.path.join(pred_dir, 'metrics.pkl'), 'wb') as f:
         pickle.dump(results, f)
 
 
@@ -42,39 +41,14 @@ def process_fn(system, pred_dir):
     predict = strucio.load_structure(pred_path)
 
     # Calculate structural properties
-    ca_dist_predict, clashes = ca_dist(predict)
     rg_predict = rg(predict)
     re2e_predict = re2e(predict)
 
-    if np.sum(clashes) > 0:
-        print(f'Warning: {np.sum(clashes)} clashed models found in {system}')
-
-    # filter clashed models
-    ca_dist_predict = ca_dist_predict[~clashes]
-    rg_predict = rg_predict[~clashes]
-    re2e_predict = re2e_predict[~clashes]
-
     return {
         'name': system,
-        'ca_dist_predict': ca_dist_predict,
         'rg_predict': rg_predict,
         're2e_predict': re2e_predict,
     }
-
-
-def ca_dist(structures):
-    dist = []
-    clash = []
-    for model in structures:
-        model = model[model.atom_name == 'CA']
-        coords = model.coord
-
-        # calculate neighbor distances
-        coords_diff = coords[1:, :] - coords[:-1, :]
-        dists = np.linalg.norm(coords_diff, axis=1)
-        dist.append(dists)
-        clash.append(any(dists > 12.0))
-    return np.stack(dist), np.array(clash)
 
 
 def rg(structures):
@@ -91,17 +65,6 @@ def re2e(structures):
         re2e.append(np.linalg.norm(coords_diff))
 
     return np.array(re2e)
-
-
-def min_rmsd(traj, structures):
-    min_rmsd = np.inf
-    for model in structures:
-        model = model[model.atom_name == 'CA']
-
-        # superimpose traj to model
-        superposed_traj, _ = struc.superimpose(model, traj)
-        min_rmsd = min(min_rmsd, np.min(struc.rmsd(model, superposed_traj)))
-    return min_rmsd
 
 
 def consolidate_results(results):
