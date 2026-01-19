@@ -25,6 +25,9 @@ This repository contains training and inference code, and useful scripts for eva
   * [Train from scratch](#Train-from-scratch)
   * [Finetune](#Finetune)
 * [Quick Evaluation](#Quick-Evaluation)
+  * [Backmapping](#Backmapping)
+  * [RMSD and Native Contact](#RMSD-and-Native-Contact)
+  * [Reweighting](#Reweighting)
 * [Contact](#Contact)
 * [Acknowledgement](#Acknowledgement)
 
