@@ -3,7 +3,7 @@
 ![python](https://img.shields.io/badge/-Python_3.11-blue?logo=python&logoColor=white)
 [![pytorch](https://img.shields.io/badge/PyTorch_2.0+-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/get-started/locally/)
 
-Implementation for [***Extending Conformational Ensemble Prediction to Multidomain Proteins and Protein Complex***]().
+Implementation for [***Extending Conformational Ensemble Prediction to Multidomain Proteins and Protein Complex***](https://www.biorxiv.org/content/10.64898/2026.01.14.699584v1).
 
 ***Under construction***
 
