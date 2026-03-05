@@ -64,7 +64,7 @@ pip install .
 
 ## Inference
 
-The model takes a `.csv` file as input, where monomers and multimers are handled seperately. The file should contain two columns `test_case` and `sequence`, denoting the name and sequence of target system respectively.
+The model takes a `.csv` file as input, where monomers and multimers are handled seperately. The file should contain two columns `test_case` and `sequence`, denoting the name and sequence of target system respectively. Examples can be find in [data](data) directory.
 
 Directory to which the PLM embeddings are saved should be assigned. If no embedding file is found in the directory, the embeddings will be extracted and stored in the assigned directory.
 
