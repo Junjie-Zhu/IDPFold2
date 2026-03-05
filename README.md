@@ -39,7 +39,7 @@ This repository contains training and inference code, and useful scripts for eva
 git clone https://github.com/Junjie-Zhu/IDPFold2
 cd IDPFold2
 
-conda env create -f environment.yml
+conda env create -f environment.yaml
 pip install fair-esm
 pip install .
 ```
@@ -238,7 +238,7 @@ python benchmarks/compare_to_multi_conf.py /PATH/TO/GENERATED/ENSEMBLE
 
 ### Reweighting
 
-First download experimental data and useful information from [PeptoneBench (Zenodo link)](https://zenodo.org/record/17306061/files/PeptoneDBs.tar.gz), calculating SAXS/CS/PRE/RDC following the PeptoneBench protocols. Then you may use the following scripts for reweighting and analysis.
+First download experimental data and useful information from [PeptoneBench](https://zenodo.org/record/17306061/files/PeptoneDBs.tar.gz), calculating SAXS/CS/PRE/RDC following the PeptoneBench protocols. Then you may use the following scripts for reweighting and analysis.
 
 ```bash
 # first analyze SAXS and CS data
