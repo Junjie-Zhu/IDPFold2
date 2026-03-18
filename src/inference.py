@@ -310,7 +310,7 @@ def main(args: DictConfig):
                         accession_code=f"{inference_dict['name'][0]}_rank_{DIST_WRAPPER.rank}_batch_{batch_idx}",
                     )
 
-                nsamples_generated += current_batch_size  # may raise error on ascend 910b
+                nsamples_generated += int(current_batch_size)  # may raise error on ascend 910b
                 batch_idx += 1
                 if DIST_WRAPPER.rank == 0:
                     pbar_inner.update(1)
