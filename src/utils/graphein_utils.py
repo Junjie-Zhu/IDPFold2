@@ -814,7 +814,7 @@ def protein_to_pyg(
         )
     else:
         id = None
-
+    
     if df is None:
         df = read_pdb_to_dataframe(
             path=path,
@@ -831,6 +831,7 @@ def protein_to_pyg(
         df = deprotonate_structure(df)
     if not keep_insertions:
         df = remove_insertions(df)
+    
     # Remove hetatms
     hets = filter_hetatms(df, keep_hets=keep_hets)
 
@@ -855,7 +856,6 @@ def protein_to_pyg(
             het_data[het]["element_symbol"] = hetatms.loc[
                 hetatms.residue_name == het
             ]["element_symbol"].values
-
     df = df.loc[df.record_name == "ATOM"]
     if remove_nonstandard:
         df = df.loc[
@@ -863,7 +863,7 @@ def protein_to_pyg(
         ]
     df = pd.concat([df] + hets)
     df = sort_dataframe(df)
-
+    
     df["residue_id"] = (
         df["chain_id"]
         + ":"

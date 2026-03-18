@@ -88,7 +88,6 @@ class MoE(nn.Module):
     def router(self, x, router_condition=None):
         if router_condition is not None and self.dim_router_cond > 0:
             x = torch.cat([x, router_condition], dim=-1)
-
         scores = self.router_linear(x.view(-1, x.shape[-1]))
         expert_weights, expert_indices = self._top_k(scores)
         if self.normalize_expert_weights:
@@ -143,7 +142,7 @@ class Experts(nn.Module):
         expert_weights = expert_weights.flatten()
         top_experts = top_experts.flatten()
         with torch.no_grad():
-            indices, bin_ids, bins, tokens_per_expert = (
+            indices, bin_ids, tokens_per_expert = (
                 self.indices_and_bins(top_experts))
 
             # If expert_capacity is set to zero, set the number of tokens
@@ -161,7 +160,7 @@ class Experts(nn.Module):
             mask,
             indices,
             expert_weights,
-            bins,
+            tokens_per_expert,
             capacity,
             self.top_k)
         return x, tokens_per_expert
@@ -173,13 +172,7 @@ class Experts(nn.Module):
         top_expert = top_expert.int()
         bin_ids, indices = torch.sort(top_expert)
         tokens_per_expert = torch.histc(top_expert, self.n_experts, 0, self.n_experts - 1)
-
-        # Calculate the bin bounds for the sorted tokens.
-        if len(tokens_per_expert.size()) == 1:
-            tokens_per_expert = tokens_per_expert.view(1, -1)
-        bins = torch.cumsum(tokens_per_expert, dim=0)
-        bins = bins.view(1) if not len(bins.size()) else bins
-        return indices, bin_ids, bins, tokens_per_expert
+        return indices, bin_ids, tokens_per_expert
 
     def permute_and_compute(
             self,
@@ -188,7 +181,7 @@ class Experts(nn.Module):
             mask,
             indices,
             expert_weights,
-            bins,
+            tokens_per_expert,
             expert_capacity,
             top_k):
         # Route the tokens for MoE computation.
@@ -196,14 +189,15 @@ class Experts(nn.Module):
         cond = cond.view(-1, cond.shape[-1])
         mask = mask.view(-1, 1)
 
-        x_shape = x.shape
+        source_indices_flat = indices.long() // top_k
+        source_indices_flat = torch.clamp(source_indices_flat, min=0, max=x.shape[0] - 1)
 
-        x = binned_gather(
-            x, indices, bins, expert_capacity, top_k)
-        cond = binned_gather(
-            cond, indices, bins, expert_capacity, top_k)
-        mask = binned_gather(
-            mask, indices, bins, expert_capacity, top_k)
+        x, dest_indices = binned_gather(
+            x, source_indices_flat, tokens_per_expert, expert_capacity)
+        cond, _ = binned_gather(
+            cond, source_indices_flat, tokens_per_expert, expert_capacity)
+        mask, _ = binned_gather(
+            mask, source_indices_flat, tokens_per_expert, expert_capacity)
 
         # Perform the expert computation.
         x_out = []
@@ -211,13 +205,13 @@ class Experts(nn.Module):
             x_i = x[i, :, :]
             cond_i = cond[i, :, :]
             mask_i = mask[i, :, 0]
-            x_out.append(self.expert[i](x_i, cond_i, mask_i.squeeze(-1)))
-            # x_out.append(self._single_expert_forward(x_i, cond_i, mask_i, i))
+            # x_out.append(self.expert[i](x_i, cond_i, mask_i.squeeze(-1)))
+            x_out.append(self._single_expert_forward(x_i, cond_i, mask_i, i))
         x_out = torch.stack(x_out, dim=0)
 
         # Un-route the data for the MoE output.
         return binned_scatter(
-            x_out, indices, top_k, original_shape=x_shape)
+            x_out, source_indices_flat, dest_indices, tokens_per_expert, top_k, expert_weights)
 
     def _single_expert_forward(self, x, cond, mask, expert_idx):
         """efficient forward for single expert case"""
@@ -236,5 +230,6 @@ class Experts(nn.Module):
         )
         x_out[mask] = self.expert[expert_idx](x_active, cond_active, expert_inner_mask)
         return x_out
+
 
 

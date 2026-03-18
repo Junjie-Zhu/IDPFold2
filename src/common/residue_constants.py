@@ -583,3 +583,4 @@ restype_3to1 = {
 }
 
 resname_to_idx = {resname_3: restypes.index(resname_1) for resname_3, resname_1 in restype_3to1.items()}
+

@@ -8,7 +8,7 @@ from scipy.spatial.transform import Rotation
 import torch
 import torch.nn as nn
 
-import src.model.components.moe_modules as moe_modules
+import src.model.components.moe_modules_torch as moe_modules
 
 nm_to_ang_scale = 10.0
 ang_to_nm = lambda trans: trans / nm_to_ang_scale
@@ -399,4 +399,5 @@ def generating_predict(
 
     moe_modules.clear_load_balancing_loss()
     return pred_structure
+
 

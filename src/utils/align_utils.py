@@ -35,7 +35,7 @@ def mean_w_mask(a, mask, keepdim=True):
     mask = mask[..., None]  # [*, n, 1]
     num_elements = torch.sum(mask, dim=-2, keepdim=True)  # [*, 1, 1]
     num_elements = torch.where(
-        num_elements == 0, torch.tensor(1.0), num_elements
+        num_elements == 0, torch.tensor(1.0).to(num_elements.device), num_elements
     )  # [*, 1, 1]
     a_masked = torch.masked_fill(a, ~mask, 0.0)  # [*, n, d]
     mean = torch.sum(a_masked, dim=-2, keepdim=True) / num_elements  # [*, 1, d]

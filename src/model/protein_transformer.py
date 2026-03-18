@@ -536,3 +536,4 @@ class ProteinTransformerAF3(torch.nn.Module):
         nn_out = {"coors_pred": final_coors}
         return nn_out
 
+
