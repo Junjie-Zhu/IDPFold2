@@ -19,6 +19,7 @@ This repository contains training and inference code, and useful scripts for eva
   * [Install with conda](#install-with-conda)
   * [Install with docker](#install-with-docker)
   * [Fetch checkpoints](#fetch-checkpoints)
+* [Installation on Ascend 910B](#installation-on-ascend-910b)
 * [Inference](#Inference)
   * [Monomers](#For-monomers)
   * [Multimers](#For-multimers)
