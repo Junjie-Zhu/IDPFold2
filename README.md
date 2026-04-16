@@ -6,6 +6,8 @@
 Implementation for [***Extending Conformational Ensemble Prediction to Multidomain Proteins and Protein Complex***](https://www.biorxiv.org/content/10.64898/2026.01.14.699584v1).
 
 ***Under construction***
+`Recent news and updates`
+* [2026-04-16] We provide Dockerfile for installation on both NVIDIA and Ascend platform now. A colab notebook is also available now, try it here.
 
 ## Description
 
@@ -16,9 +18,9 @@ This repository contains training and inference code, and useful scripts for eva
 ## Table of Contents
 
 * [Installation](#Installation)
+  * [Fetch checkpoints](#fetch-checkpoints)
   * [Install with conda](#install-with-conda)
   * [Install with docker](#install-with-docker)
-  * [Fetch checkpoints](#fetch-checkpoints)
 * [Installation on Ascend 910B](#installation-on-ascend-910b)
 * [Inference](#Inference)
   * [Monomers](#For-monomers)
@@ -36,6 +38,13 @@ This repository contains training and inference code, and useful scripts for eva
 * [Acknowledgement](#Acknowledgement)
 
 ## Installation
+
+### Fetch checkpoints 
+
+**Download weights from [Zenodo](https://zenodo.org/records/18239596).** 
+
+* `IDPFold2_ema_0.999_260114.pth`: For **inference**, or EMA checkpoint for training.
+* `IDPFold2_260114.pth`:  For training only.
 
 ### Install with conda
 
@@ -67,11 +76,18 @@ pip install .
 
 **Note:** Docker installation has not been tested since we cannot use docker on our HPC, please give feedback in issue if you meet any problem in installation.
 
-For containerized environment setup please see `docker/README.md`, you may build the image with the following command:
+<details>
+<summary><strong>Click to expand: complete installation with Docker</strong></summary>
+
+For full containerized usage details, you may also refer to `docker/README.md`.
+
+### 1) Build image
 
 ```bash
 docker build -t idpfold2-env .
 ```
+
+### 2) Prepare local directories
 
 Create local directories before running the container:
 
@@ -80,12 +96,32 @@ Create local directories before running the container:
 - `embeddings/` for PLM embeddings cache
 - `outputs/` for logs and generated samples
 
-### Fetch checkpoints 
+### 3) Run container (GPU)
 
-**Download weights from [Zenodo](https://zenodo.org/records/18239596).** 
+```bash
+docker run --rm -it --gpus all \
+  -v $(pwd)/checkpoints:/workspace/checkpoints \
+  -v $(pwd)/inputs:/workspace/inputs \
+  -v $(pwd)/embeddings:/workspace/embeddings \
+  -v $(pwd)/outputs:/workspace/outputs \
+  -w /workspace/IDPFold-multimer \
+  idpfold2-env
+```
 
-* `IDPFold2_ema_0.999_260114.pth`: For **inference**, or EMA checkpoint for training.
-* `IDPFold2_260114.pth`:  For training only.
+### 4) Quick inference test in container
+
+```bash
+python src/inference.py \
+  prefix=MONOMER_DOCKER \
+  ckpt_dir=/workspace/checkpoints/IDPFold2_ema_0.999_260114.pth \
+  plm_emb_dir=/workspace/embeddings \
+  csv_dir=/workspace/IDPFold-multimer/data/monomer_example.csv \
+  nsamples=4 \
+  max_batch_length=3500 \
+  logging_dir=/workspace/outputs
+```
+
+</details>
 
 ## Installation on Ascend 910B
 
