@@ -16,6 +16,9 @@ This repository contains training and inference code, and useful scripts for eva
 ## Table of Contents
 
 * [Installation](#Installation)
+  * [Install with conda](#install-with-conda)
+  * [Install with docker](#install-with-docker)
+  * [Fetch checkpoints](#fetch-checkpoints)
 * [Inference](#Inference)
   * [Monomers](#For-monomers)
   * [Multimers](#For-multimers)
@@ -32,6 +35,8 @@ This repository contains training and inference code, and useful scripts for eva
 * [Acknowledgement](#Acknowledgement)
 
 ## Installation
+
+### Install with conda
 
 **Fetch the project and install dependencies:**
 
@@ -57,10 +62,82 @@ pip install .
 * In some cases it will raise an undefined symbol error during installation, please refer to [this issue](https://github.com/databricks/megablocks/issues/159) for fixation. 
 * The acceleration effect of MegaBlocks has not been tested on our model as we mainly performed inference on Ascend 910B, which did not support this package.  Nevertheless, using either torch or Megablocks version merely affect the predicted structure.
 
+### Install with docker 
+
+**Note:** Docker installation has not been tested since we cannot use docker on our HPC, please give feedback in issue if you meet any problem in installation.
+
+For containerized environment setup please see `docker/README.md`, you may build the image with the following command:
+
+```bash
+docker build -t idpfold2-env .
+```
+
+Create local directories before running the container:
+
+- `checkpoints/` for `.pth` files
+- `inputs/` for inference CSV or training metadata
+- `embeddings/` for PLM embeddings cache
+- `outputs/` for logs and generated samples
+
+### Fetch checkpoints 
+
 **Download weights from [Zenodo](https://zenodo.org/records/18239596).** 
 
 * `IDPFold2_ema_0.999_260114.pth`: For **inference**, or EMA checkpoint for training.
 * `IDPFold2_260114.pth`:  For training only.
+
+## Installation on Ascend 910B
+
+We provide a dedicated `Dockerfile.ascend` for Ascend users.
+
+<details>
+<summary><strong>Click to expand: complete installation on Ascend 910B</strong></summary>
+
+### 1) Prepare installer files
+
+Place the following files in the repository root before building:
+
+- `Ascend-cann-toolkit_8.2.RC1_linux-aarch64.run`
+- `Ascend-cann-kernels-910b_8.2.RC1_linux-aarch64.run`
+- (Optional) `Miniforge3-Linux-aarch64.sh` for offline/local Miniforge install
+
+### 2) Build Ascend image
+
+```bash
+docker build -f Dockerfile.ascend \
+  --build-arg MINIFORGE_LOCAL_FILE="Miniforge3-Linux-aarch64.sh" \
+  --build-arg CANN_TOOLKIT_RUN="Ascend-cann-toolkit_8.2.RC1_linux-aarch64.run" \
+  --build-arg CANN_KERNELS_RUN="Ascend-cann-kernels-910b_8.2.RC1_linux-aarch64.run" \
+  --build-arg TORCH_PACKAGE="torch==2.6.0" \
+  --build-arg PYG_PACKAGE="torch-geometric==2.6.1" \
+  --build-arg TORCH_NPU_PACKAGE="torch-npu==2.6.0.post3" \
+  -t idpfold2-ascend-env .
+```
+
+### 3) Run container (mount Ascend driver and devices)
+
+```bash
+docker run --rm -it --privileged \
+  -v /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro \
+  -v /etc/ascend_install.info:/etc/ascend_install.info:ro \
+  -v /dev:/dev \
+  -v $(pwd)/checkpoints:/workspace/checkpoints \
+  -v $(pwd)/inputs:/workspace/inputs \
+  -v $(pwd)/embeddings:/workspace/embeddings \
+  -v $(pwd)/outputs:/workspace/outputs \
+  -w /workspace/IDPFold-multimer \
+  idpfold2-ascend-env
+```
+
+### 4) Quick check in container
+
+```bash
+python -c "import torch; import torch_npu; print(torch.__version__)"
+```
+
+If your host paths or installer filenames differ, update the corresponding Docker build args and mount paths.
+
+</details>
 
 ## Inference
 
