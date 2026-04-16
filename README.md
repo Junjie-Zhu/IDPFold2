@@ -6,8 +6,9 @@
 Implementation for [***Extending Conformational Ensemble Prediction to Multidomain Proteins and Protein Complex***](https://www.biorxiv.org/content/10.64898/2026.01.14.699584v1).
 
 ***Under construction***
+
 `Recent news and updates`
-* [2026-04-16] We provide Dockerfile for installation on both NVIDIA and Ascend platform now. A colab notebook is also available now, try it here.
+* [2026-04-16] We provide Dockerfile for installation on both NVIDIA and Ascend platform now. A colab notebook is also available now, try it [here]().
 
 ## Description
 
@@ -157,6 +158,8 @@ docker build -f Dockerfile.ascend \
 docker run --rm -it --privileged \
   -v /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro \
   -v /etc/ascend_install.info:/etc/ascend_install.info:ro \
+  -v /usr/local/dcmi:/usr/local/dcmi:ro \
+  -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi:ro \
   -v /dev:/dev \
   -v $(pwd)/checkpoints:/workspace/checkpoints \
   -v $(pwd)/inputs:/workspace/inputs \
@@ -169,7 +172,16 @@ docker run --rm -it --privileged \
 ### 4) Quick check in container
 
 ```bash
-python -c "import torch; import torch_npu; print(torch.__version__)"
+which npu-smi || true
+npu-smi info
+python -c "import torch, torch_npu; print(torch.__version__)"
+```
+
+If `torch_npu` still reports missing `libhccl.so`/`libascend_hal.so`, run this manually in the container:
+
+```bash
+export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/lib64:/usr/local/Ascend/ascend-toolkit/8.2.RC1/hccl/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/driver:/usr/local/dcmi/lib64:${LD_LIBRARY_PATH}
+python -c "import torch, torch_npu; print(torch.__version__)"
 ```
 
 If your host paths or installer filenames differ, update the corresponding Docker build args and mount paths.

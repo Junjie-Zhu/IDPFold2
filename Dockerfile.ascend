@@ -61,6 +61,9 @@ RUN if [ -f "/usr/local/Ascend/ascend-toolkit/set_env.sh" ]; then \
         echo "CANN set_env.sh not found in /usr/local/Ascend or /root/Ascend" && exit 1; \
     fi
 
+RUN cp /workspace/IDPFold-multimer/docker/ascend_entrypoint.sh /usr/local/bin/ascend_entrypoint.sh \
+    && chmod +x /usr/local/bin/ascend_entrypoint.sh
+
 RUN conda create -n idpfold2 -y python=3.11 pip \
     && conda run -n idpfold2 pip install --no-cache-dir setuptools wheel \
     && conda run -n idpfold2 pip install --no-cache-dir attrs cython numpy==1.24.0 decorator sympy cffi pyyaml pathlib2 psutil protobuf==3.20 scipy requests absl-py \
@@ -76,4 +79,5 @@ RUN conda create -n idpfold2 -y python=3.11 pip \
 ENV PATH=${CONDA_DIR}/envs/idpfold2/bin:${CONDA_DIR}/bin:${PATH}
 ENV CONDA_DEFAULT_ENV=idpfold2
 
+ENTRYPOINT ["/usr/local/bin/ascend_entrypoint.sh"]
 CMD ["/bin/bash"]
