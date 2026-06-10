@@ -1,6 +1,5 @@
 import random
 from functools import partial
-from tkinter import X
 from typing import Optional, Callable
 from math import prod
 

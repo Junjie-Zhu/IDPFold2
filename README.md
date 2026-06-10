@@ -184,7 +184,10 @@ export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/lib
 python -c "import torch, torch_npu; print(torch.__version__)"
 ```
 
-If your host paths or installer filenames differ, update the corresponding Docker build args and mount paths.
+**Note:** 
+
+* If your host paths or installer filenames differ, update the corresponding Docker build args and mount paths.
+* Only biotite>=1.6.0 supports aarch64, in this case numpy should be updated to 1.26.0
 
 </details>
 
