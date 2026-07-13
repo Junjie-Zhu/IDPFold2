@@ -77,7 +77,7 @@ pip install .
 
 **Note:** Docker installation has not been tested since we cannot use docker on our HPC, please give feedback in issue if you meet any problem in installation.
 
-For full containerized usage, including CPU fallback, Ascend, Windows PowerShell volume syntax, and troubleshooting, see [docker/README.md](docker/README.md). A shorter Docker and Colab quickstart is also available in [docs/docker_colab_quickstart.md](docs/docker_colab_quickstart.md).
+For full containerized usage, including CPU fallback, Ascend, Windows PowerShell volume syntax, and troubleshooting, see [docker/README.md](docker/README.md).
 
 ```bash
 mkdir -p checkpoints inputs embeddings outputs
