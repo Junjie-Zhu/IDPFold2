@@ -8,7 +8,7 @@ Implementation for [***Extending Conformational Ensemble Prediction to Multidoma
 ***Under construction***
 
 `Recent news and updates`
-* [2026-04-16] We provide Dockerfile for installation on both NVIDIA and Ascend platform now. A colab notebook is also available now, try it [here]().
+* [2026-04-16] We provide Dockerfile for installation on both NVIDIA and Ascend platform now. A colab notebook is also available now, try it [here](notebooks/IDPFold2_colab_monomer_preview.ipynb).
 
 ## Description
 
@@ -73,33 +73,15 @@ pip install .
 * In some cases it will raise an undefined symbol error during installation, please refer to [this issue](https://github.com/databricks/megablocks/issues/159) for fixation. 
 * The acceleration effect of MegaBlocks has not been tested on our model as we mainly performed inference on Ascend 910B, which did not support this package.  Nevertheless, using either torch or Megablocks version merely affect the predicted structure.
 
-### Install with docker 
+### Install with docker
 
-**Note:** Docker installation has not been tested since we cannot use docker on our HPC, please give feedback in issue if you meet any problem in installation.
+The Docker image provides a CUDA-ready conda environment for both inference and training. It does not include model checkpoints; download `IDPFold2_ema_0.999_260114.pth` from [Zenodo](https://zenodo.org/records/18239596) into `checkpoints/` before running inference.
 
-<details>
-<summary><strong>Click to expand: complete installation with Docker</strong></summary>
-
-For full containerized usage details, you may also refer to `docker/README.md`.
-
-### 1) Build image
+For full containerized usage, including CPU fallback, Ascend, Windows PowerShell volume syntax, and troubleshooting, see [docker/README.md](docker/README.md). A shorter Docker and Colab quickstart is also available in [docs/docker_colab_quickstart.md](docs/docker_colab_quickstart.md).
 
 ```bash
+mkdir -p checkpoints inputs embeddings outputs
 docker build -t idpfold2-env .
-```
-
-### 2) Prepare local directories
-
-Create local directories before running the container:
-
-- `checkpoints/` for `.pth` files
-- `inputs/` for inference CSV or training metadata
-- `embeddings/` for PLM embeddings cache
-- `outputs/` for logs and generated samples
-
-### 3) Run container (GPU)
-
-```bash
 docker run --rm -it --gpus all \
   -v $(pwd)/checkpoints:/workspace/checkpoints \
   -v $(pwd)/inputs:/workspace/inputs \
@@ -109,10 +91,10 @@ docker run --rm -it --gpus all \
   idpfold2-env
 ```
 
-### 4) Quick inference test in container
+Inside the container, run a small monomer inference:
 
 ```bash
-python src/inference.py \
+idpfold2-infer \
   prefix=MONOMER_DOCKER \
   ckpt_dir=/workspace/checkpoints/IDPFold2_ema_0.999_260114.pth \
   plm_emb_dir=/workspace/embeddings \
@@ -121,8 +103,6 @@ python src/inference.py \
   max_batch_length=3500 \
   logging_dir=/workspace/outputs
 ```
-
-</details>
 
 ## Installation on Ascend 910B
 
@@ -187,7 +167,8 @@ python -c "import torch, torch_npu; print(torch.__version__)"
 **Note:** 
 
 * If your host paths or installer filenames differ, update the corresponding Docker build args and mount paths.
-* Only biotite>=1.6.0 supports aarch64, in this case numpy should be updated to 1.26.0
+* The Ascend Dockerfile pins `biotite==0.41.0` and `numpy==1.24.0` to match the tested environment. If you upgrade to a newer aarch64 `biotite`, update the numpy pin accordingly.
+* The Ascend image does not install `mmseqs2`; training workflows that require clustering need precomputed clusters or a separate `mmseqs2` installation.
 
 </details>
 
@@ -200,14 +181,16 @@ Directory to which the PLM embeddings are saved should be assigned. If no embedd
 ### For monomers
 
 ```bash
-python src/inference.py \
-	prefix=MONOMER \
+idpfold2-infer \
+    prefix=MONOMER \
     ckpt_dir=/PATH/TO/CHECKPOINT/IDPFold2_ema_0.999_260114.pth \
     plm_emb_dir=./embeddings \
     csv_dir=/PATH/TO/INPUT/SEQUENCES \
     nsamples=100 \
     max_batch_length=6000 
 ```
+
+When running directly from a source checkout, `python src/inference.py` accepts the same Hydra arguments.
 
 **Important arguments:**
 

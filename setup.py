@@ -2,19 +2,35 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="src",
+    name="idpfold2",
     version="0.0.1",
-    description="Describe Your Cool Project",
-    author="",
-    author_email="",
-    url="https://github.com/user/project",
-    install_requires=["hydra-core"],
+    description="Generative conformational ensemble prediction for monomers, multidomain proteins, and protein complexes.",
+    author="junjie zhu",
+    author_email="shiroyuki@sjtu.edu.cn",
+    url="https://github.com/Junjie-Zhu/IDPFold2",
+    python_requires=">=3.11",
+    install_requires=[
+        "biopandas==0.5.1",
+        "biopython",
+        "biotite==0.41.0",
+        "cpdb-protein",
+        "dm-tree==0.1.8",
+        "einops==0.6",
+        "fair-esm",
+        "hydra-core==1.3.1",
+        "loguru==0.7.2",
+        "numpy==1.23.5",
+        "pandas==1.5.3",
+        "rootutils",
+        "scipy",
+        "tqdm==4.66.4",
+        "wget==3.2",
+    ],
     packages=find_packages(),
-    # use this to customize global commands available in the terminal after installing the package
     entry_points={
         "console_scripts": [
-            "train_command = src.train:main",
-            "eval_command = src.eval:main",
+            "idpfold2-train = src.train:main",
+            "idpfold2-infer = src.inference:main",
         ]
     },
 )

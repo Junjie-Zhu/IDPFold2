@@ -1,24 +1,38 @@
 # Docker Usage for IDPFold2
 
-This Docker image is an environment container for both training and inference.
-It does not download model checkpoints automatically.
+This guide builds an IDPFold2 environment container for inference and training. The images install the code and dependencies, but they do not bundle model checkpoints or pre-download ESM weights.
 
-## 1) Build image
+## Prerequisites
+
+- Docker Engine with enough disk space for the image and conda environment.
+- For NVIDIA GPUs: a working NVIDIA driver and NVIDIA Container Toolkit so `docker run --gpus all` works.
+- For Ascend 910B: host Ascend drivers, CANN installer `.run` files, and access to the device mounts listed below.
+- Download checkpoints from [Zenodo](https://zenodo.org/records/18239596) before inference.
+
+On Windows PowerShell, replace `$(pwd)` in volume mounts with `${PWD}`.
+
+## Host Directories
+
+Create these directories in the repository root or adapt the volume paths:
+
+```bash
+mkdir -p checkpoints inputs embeddings outputs
+```
+
+- `checkpoints/`: model `.pth` files.
+- `inputs/`: custom CSV inputs or training metadata.
+- `embeddings/`: PLM embedding cache. ESM weights may download on first use.
+- `outputs/`: inference samples and training logs.
+
+## NVIDIA/CUDA Image
+
+Build from the repository root:
 
 ```bash
 docker build -t idpfold2-env .
 ```
 
-## 2) Prepare host directories
-
-Create local directories before running the container:
-
-- `checkpoints/` for `.pth` files
-- `inputs/` for inference CSV or training metadata
-- `embeddings/` for PLM embeddings cache
-- `outputs/` for logs and generated samples
-
-## 3) Run container (GPU)
+Run with GPU support:
 
 ```bash
 docker run --rm -it --gpus all \
@@ -30,7 +44,7 @@ docker run --rm -it --gpus all \
   idpfold2-env
 ```
 
-## 4) Run container (CPU fallback)
+CPU fallback is valid for small smoke tests, but inference is much slower:
 
 ```bash
 docker run --rm -it \
@@ -42,14 +56,12 @@ docker run --rm -it \
   idpfold2-env
 ```
 
-CPU mode is valid but much slower than GPU.
-
-## 5) Inference example (monomer)
+### Monomer Inference
 
 Inside the container shell:
 
 ```bash
-python src/inference.py \
+idpfold2-infer \
   prefix=MONOMER_DOCKER \
   ckpt_dir=/workspace/checkpoints/IDPFold2_ema_0.999_260114.pth \
   plm_emb_dir=/workspace/embeddings \
@@ -59,12 +71,18 @@ python src/inference.py \
   logging_dir=/workspace/outputs
 ```
 
-## 6) Training example (smoke run)
+The direct script form is equivalent when running from the repository checkout:
+
+```bash
+python src/inference.py prefix=MONOMER_DOCKER ckpt_dir=/workspace/checkpoints/IDPFold2_ema_0.999_260114.pth csv_dir=/workspace/IDPFold-multimer/data/monomer_example.csv
+```
+
+### Training Smoke Command
 
 Inside the container shell:
 
 ```bash
-python src/train.py \
+idpfold2-train \
   task_prefix=DOCKER_SMOKE \
   epochs=1 \
   batch_size=1 \
@@ -72,59 +90,22 @@ python src/train.py \
   data.plm_emb_dir=/workspace/embeddings
 ```
 
-Adjust dataset paths and training arguments for your real training job.
+Replace `TRAIN_DATA_ROOT` with a prepared training dataset. The command above checks that the installed CLI and mounted paths resolve; it is not a complete training recipe.
 
-## 7) Ascend/CANN image (optional)
+## Ascend/CANN Image
 
-If you are using Ascend 910B, use the dedicated `Dockerfile.ascend`.
+Use `Dockerfile.ascend` for Ascend 910B. This image installs PyTorch, PyG, and `torch-npu` through build arguments so you can match your CANN stack.
 
-### Build prerequisites
+### Build Prerequisites
 
-Place the following two installers in the repository root before building:
+Place the CANN installers in the repository root before building:
 
 - `Ascend-cann-toolkit_8.2.RC1_linux-aarch64.run`
 - `Ascend-cann-kernels-910b_8.2.RC1_linux-aarch64.run`
 
-If your installer filenames differ, override them with build args:
+Optionally place `Miniforge3-Linux-aarch64.sh` in the repository root for offline or mirrored builds.
 
-```bash
-docker build -f Dockerfile.ascend \
-  --build-arg CANN_TOOLKIT_RUN="Ascend-cann-toolkit_8.2.RC1_linux-aarch64.run" \
-  --build-arg CANN_KERNELS_RUN="Ascend-cann-kernels-910b_8.2.RC1_linux-aarch64.run" \
-  -t idpfold2-ascend-env .
-```
-
-### Build command
-
-```bash
-docker build -f Dockerfile.ascend -t idpfold2-ascend-env .
-```
-
-### Build with pre-downloaded Miniforge installer (optional)
-
-1. Put Miniforge installer in repository root, for example:
-   - `Miniforge3-Linux-aarch64.sh`
-2. Build with `MINIFORGE_LOCAL_FILE`:
-
-```bash
-docker build -f Dockerfile.ascend \
-  --build-arg MINIFORGE_LOCAL_FILE="Miniforge3-Linux-aarch64.sh" \
-  -t idpfold2-ascend-env .
-```
-
-Notes:
-
-- `Dockerfile.ascend` follows this order:
-  1. install Miniforge
-  2. install CANN toolkit/kernels
-  3. create conda env (`conda create -n idpfold2 python=3.11 pip`)
-  4. install base Python requirements with pip inside the conda env
-  5. install `pyyaml` + `setuptools`
-  6. install torch
-  7. install `pyg` with pip (after torch)
-  8. install `torch-npu`
-- `mmseqs2` is removed from Ascend environment setup.
-- You can override torch package at build time:
+### Build
 
 ```bash
 docker build -f Dockerfile.ascend \
@@ -137,11 +118,9 @@ docker build -f Dockerfile.ascend \
   -t idpfold2-ascend-env .
 ```
 
-- The Ascend installer filenames are currently fixed to the versions above.
-- If `MINIFORGE_LOCAL_FILE` is empty or missing, Dockerfile will download Miniforge from `MINIFORGE_URL`.
-- CANN installers are executed in non-interactive mode when possible (`--quiet`), and fall back to auto-confirm (`yes Y | ...`) if interactive confirmation is still required.
+If you do not use a local Miniforge file, omit `MINIFORGE_LOCAL_FILE` and the Dockerfile will download from `MINIFORGE_URL`.
 
-### Runtime command verified on 910B
+### Run on Ascend 910B
 
 ```bash
 docker run --rm -it --privileged \
@@ -151,15 +130,33 @@ docker run --rm -it --privileged \
   -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi:ro \
   -v /dev:/dev \
   -v $(pwd)/checkpoints:/workspace/checkpoints \
-  -v $(pwd)/inputs:/workspace/data \
+  -v $(pwd)/inputs:/workspace/inputs \
   -v $(pwd)/embeddings:/workspace/embeddings \
   -v $(pwd)/outputs:/workspace/outputs \
   -w /workspace/IDPFold-multimer \
   idpfold2-ascend-env
 ```
 
-If `torch_npu` reports `libhccl.so`/`libascend_hal.so` not found, run this inside the container:
+Quick check inside the container:
+
+```bash
+which npu-smi || true
+npu-smi info
+python -c "import torch, torch_npu; print(torch.__version__)"
+```
+
+If `torch_npu` reports `libhccl.so` or `libascend_hal.so` as missing, run:
 
 ```bash
 export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/lib64:/usr/local/Ascend/ascend-toolkit/8.2.RC1/hccl/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/driver:/usr/local/dcmi/lib64:${LD_LIBRARY_PATH}
 ```
+
+The Ascend image intentionally does not install `mmseqs2`. Inference from precomputed inputs works without it, but training workflows that require on-the-fly clustering need precomputed clusters or a separate `mmseqs2` installation.
+
+## Troubleshooting
+
+- `docker: Error response from daemon: could not select device driver`: install or repair NVIDIA Container Toolkit, then retry `docker run --gpus all`.
+- Checkpoint not found: mount the host `checkpoints/` directory and confirm `IDPFold2_ema_0.999_260114.pth` exists inside `/workspace/checkpoints`.
+- First inference is slow: ESM weights and embeddings are generated the first time and cached under `/workspace/embeddings`.
+- CUDA or NPU out of memory: lower `nsamples` or `max_batch_length`.
+- Dependency install failures during build: rebuild after clearing partial layers or pin the accelerator package build arguments to versions supported by your driver/runtime.

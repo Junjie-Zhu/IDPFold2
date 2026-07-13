@@ -6,10 +6,15 @@ ENV PATH=${CONDA_DIR}/bin:${PATH}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
+    build-essential \
     bzip2 \
     ca-certificates \
     curl \
+    gcc \
+    g++ \
     git \
+    make \
+    procps \
     vim \
     wget \
     && rm -rf /var/lib/apt/lists/*
