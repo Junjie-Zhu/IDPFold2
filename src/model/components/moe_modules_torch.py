@@ -171,7 +171,7 @@ class Experts(nn.Module):
     def indices_and_bins(self, top_expert):
         top_expert = top_expert.int()
         bin_ids, indices = torch.sort(top_expert)
-        tokens_per_expert = torch.histc(top_expert, self.n_experts, 0, self.n_experts - 1)
+        tokens_per_expert = torch.histc(top_expert.float(), self.n_experts, 0, self.n_experts - 1).long()
         return indices, bin_ids, tokens_per_expert
 
     def permute_and_compute(

@@ -26,6 +26,11 @@ setup(
         "tqdm==4.66.4",
         "wget==3.2",
     ],
+    extras_require={
+        "test": [
+            "pytest",
+        ],
+    },
     packages=find_packages(),
     entry_points={
         "console_scripts": [

@@ -57,7 +57,8 @@ def rg(structures):
 
 def re2e(structures):
     re2e = []
-    for model in structures:
+    models = [structures] if structures.coord.ndim == 2 else structures
+    for model in models:
         model = model[model.atom_name == 'CA']
         coords = model.coord
 

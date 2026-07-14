@@ -26,3 +26,4 @@ dependencies:
     - cpdb-protein
     - biopython
     - rootutils
+    - pytest
