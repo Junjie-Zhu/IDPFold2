@@ -9,6 +9,7 @@ Implementation for [***Extending Conformational Ensemble Prediction to Multidoma
 
 `Recent news and updates`
 * [2026-04-16] We provide Dockerfile for installation on both NVIDIA and Ascend platform now. A colab notebook is also available now, try it [here](https://colab.research.google.com/github/Junjie-Zhu/IDPFold2/blob/main/notebooks/IDPFold2_colab_monomer_preview.ipynb).
+* [2026-07-14] 
 
 ## Description
 
@@ -104,14 +105,14 @@ idpfold2-infer \
   logging_dir=/workspace/outputs
 ```
 
-## Installation on Ascend 910B
+### Installation on Ascend 910B
 
 We provide a dedicated `Dockerfile.ascend` for Ascend users.
 
 <details>
 <summary><strong>Click to expand: complete installation on Ascend 910B</strong></summary>
 
-### 1) Prepare installer files
+#### 1) Prepare installer files
 
 Place the following files in the repository root before building:
 
@@ -119,7 +120,7 @@ Place the following files in the repository root before building:
 - `Ascend-cann-kernels-910b_8.2.RC1_linux-aarch64.run`
 - (Optional) `Miniforge3-Linux-aarch64.sh` for offline/local Miniforge install
 
-### 2) Build Ascend image
+#### 2) Build Ascend image
 
 ```bash
 docker build -f Dockerfile.ascend \
@@ -132,7 +133,7 @@ docker build -f Dockerfile.ascend \
   -t idpfold2-ascend-env .
 ```
 
-### 3) Run container (mount Ascend driver and devices)
+#### 3) Run container (mount Ascend driver and devices)
 
 ```bash
 docker run --rm -it --privileged \
@@ -149,7 +150,7 @@ docker run --rm -it --privileged \
   idpfold2-ascend-env
 ```
 
-### 4) Quick check in container
+#### 4) Quick check in container
 
 ```bash
 which npu-smi || true
@@ -171,6 +172,14 @@ python -c "import torch, torch_npu; print(torch.__version__)"
 * The Ascend image does not install `mmseqs2`; training workflows that require clustering need precomputed clusters or a separate `mmseqs2` installation.
 
 </details>
+
+### Pytest
+
+Run tests to check if everything runs smoothly.
+
+```bash
+python -m pytest
+```
 
 ## Inference
 
@@ -383,7 +392,7 @@ Please contact through email `shiroyuki@sjtu.edu.cn` or create an issue if you h
 
 ## Acknowledgement
 
-Thank [Z. Zheng](https://github.com/Immortals-33) and [Z. Fan](https://github.com/Zirui-Fan) for providing helpful discussions, and [J. Yu](https://github.com/yjyjyjy2016) for viewpoints on multidomain proteins.
+Thank [Z. Zheng](https://github.com/Immortals-33) and [Z. Fan](https://github.com/Zirui-Fan) for providing helpful discussions, [J. Yu](https://github.com/yjyjyjy2016) for viewpoints on multidomain proteins, and [K. Zhao](https://github.com/BioDragonZ) for assistance with the CASP16 targets.
 
 The codebase is mainly constructed on [Proteina](https://github.com/NVIDIA-Digital-Bio/proteina).
 

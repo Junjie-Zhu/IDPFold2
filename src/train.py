@@ -22,7 +22,7 @@ from src.model.components.motif_factory import SingleMotifFactory
 from src.model.optimizer import get_optimizer, get_lr_scheduler
 from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
 from src.utils.cluster_utils import log_info
-from src.utils.pdb_utils import to_pdb_simple
+from src.utils.pdb_utils import to_pdb_simple, to_pdb
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -396,7 +396,7 @@ def main(args: DictConfig):
                         device=device,
                     )
                     # save pdb
-                    to_pdb_simple(
+                    to_pdb(
                         atom_positions=pred_structure.squeeze() * 10,
                         residue_ids=inf_dict["residue_type"].squeeze(),
                         chain_ids=inf_dict["chains"].squeeze(),
