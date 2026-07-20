@@ -9,7 +9,7 @@ Implementation for [***Extending Conformational Ensemble Prediction to Multidoma
 
 `Recent news and updates`
 * [2026-04-16] We provide Dockerfile for installation on both NVIDIA and Ascend platform now. A colab notebook is also available now, try it [here](https://colab.research.google.com/github/Junjie-Zhu/IDPFold2/blob/main/notebooks/IDPFold2_colab_monomer_preview.ipynb).
-* [2026-07-14] 
+* [2026-07-20] We provide optimized [PeptoneBench](https://github.com/PeptoneLtd/peptonebench/tree/main), please refer to [benchmarks/peptonebench](benchmarks/peptonebench) for full guidance.
 
 ## Description
 
