@@ -8,6 +8,7 @@ Implementation for [***Extending Conformational Ensemble Prediction to Multidoma
 ***Under construction***
 
 `Recent news and updates`
+
 * [2026-04-16] We provide Dockerfile for installation on both NVIDIA and Ascend platform now. A colab notebook is also available now, try it [here](https://colab.research.google.com/github/Junjie-Zhu/IDPFold2/blob/main/notebooks/IDPFold2_colab_monomer_preview.ipynb).
 * [2026-07-20] We provide optimized [PeptoneBench](https://github.com/PeptoneLtd/peptonebench/tree/main), please refer to [benchmarks/peptonebench](benchmarks/peptonebench) for full guidance.
 
@@ -326,7 +327,7 @@ python src/train.py \
 
 ## Quick Evaluation
 
-We provided post-processing scripts in the [scripts](scripts) directory, enabling quick evaluation of generated ensembles. We also provided some revised scripts from BioEmu-Benchmarks or PeptoneBench in the [benchmarks](benchmarks) directory, to calculate RMSD, native contacts, TiCA and reweighted SAXS/CS/PRE/RDC profiles. You may also refer to [Zenodo](https://zenodo.org/records/18239596) for plotting scripts (currently not uploaded, in preparation).
+We provided post-processing scripts in the [scripts](scripts) directory, enabling quick evaluation of generated ensembles. We also provided some revised scripts from BioEmu-Benchmarks or PeptoneBench in the [benchmarks](benchmarks) directory, to calculate RMSD, native contacts, TiCA and reweighted SAXS/CS/PRE/RDC profiles. You may also refer to [Zenodo](https://zenodo.org/records/18239596) for plotting scripts.
 
 Radius of gyration (Rg) and end-to-end distance (Re2e) can be quickly calculated by the following command:
 
@@ -347,44 +348,9 @@ python scripts/_cg2all.py -i /PATH/TO/GENERATED/ENSEMBLE -o /PATH/TO/OUTPUT/STRU
 
 **Note: **You may have to adjust `OMP_NUM_THREAD` and `num_proc` (and `batch size`) for higher efficiency. Current setting works best in our practice with 40 cpu cores.
 
-### RMSD and Native Contact
+### Benchmarks
 
-You have to first download information about the [BioEmu-Benchmarks](https://github.com/microsoft/bioemu-benchmarks/tree/main/bioemu_benchmarks) before calculating RMSDs and native contacts. Running the following script will extract both local and global RMSDs against reference structures, and fraction of native contacts for local unfolding cases.
-
-```bash
-python benchmarks/compare_to_multi_conf.py /PATH/TO/GENERATED/ENSEMBLE
-```
-
-### Reweighting
-
-First download experimental data and useful information from [PeptoneBench](https://zenodo.org/record/17306061/files/PeptoneDBs.tar.gz), calculating SAXS/CS/PRE/RDC following the PeptoneBench protocols. Then you may use the following scripts for reweighting and analysis.
-
-```bash
-# first analyze SAXS and CS data
-python analyze_saxs_integrative.py -i /PATH/TO/SAXS/PROFILES -e /PATH/TO/EXP/DATA
-python analyze_cs_integrative.py \
-    -i /PATH/TO/CS/PROFILES \
-    -e /PATH/TO/EXP/DATA \
-    --bmrb_path cs_stat_aa_filt.csv \
-    --info_path PeptoneDB-Integrative.csv
-    
-# then analyze PRE and RDC data
-python analyze_pre_integrative.py \
-	-i /PATH/TO/SAXS/PROFILES \
-	-e /PATH/TO/EXP/DATA \
-	--pre_path /PATH/TO/PRE/PROFILES
-python analyze_pre_integrative.py \
-	-i /PATH/TO/CS/PROFILES \
-	-e /PATH/TO/EXP/DATA \
-	--rdc_path /PATH/TO/RDC/PROFILES
-    --info_path PeptoneDB-Integrative.csv
-```
-
-**Important arguments:**
-
-* `bmrb_path` in analyzing CS data: download from [BMRB Chemical Shift Statistics](https://bmrb.io/ref_info/)
-* `i` in analyzing PRE/RDC should be path to SAXS/CS data respectively in order to use the pre-calculated reweighting information.
-* `e` and `info_path` denotes information provided by PeptoneDB-Integrative.
+We provided useful benchmark scripts under `benchmarks/`, please refer to guidances in specific sub-directories.
 
 ## Contact
 

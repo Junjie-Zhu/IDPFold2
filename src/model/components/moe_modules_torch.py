@@ -7,6 +7,7 @@ import torch.nn as nn
 from src.model.components.moe_operations import binned_gather, binned_scatter
 
 _LOAD_BALANCING_LOSS = []
+_MOE_ROUTER_SCORES_PATH = "./moe_router_scores.txt"
 
 
 def save_load_balancing_loss(loss):
@@ -22,6 +23,12 @@ def get_load_balancing_loss():
 def clear_load_balancing_loss():
     global _LOAD_BALANCING_LOSS
     _LOAD_BALANCING_LOSS.clear()
+
+
+def save_moe_router_scores(scores, path=_MOE_ROUTER_SCORES_PATH):
+    scores = scores.detach().float().cpu().numpy()
+    with open(path, "a", encoding="utf-8") as f:
+        np.savetxt(f, scores, fmt="%.6f", delimiter=",")
 
 
 def batched_load_balancing_loss(moe_loss_weight, num_layers, num_experts, top_k):
@@ -89,6 +96,7 @@ class MoE(nn.Module):
         if router_condition is not None and self.dim_router_cond > 0:
             x = torch.cat([x, router_condition], dim=-1)
         scores = self.router_linear(x.view(-1, x.shape[-1]))
+        # save_moe_router_scores(scores)
         expert_weights, expert_indices = self._top_k(scores)
         if self.normalize_expert_weights:
             expert_weights = expert_weights / expert_weights.sum(dim=-1, keepdim=True)

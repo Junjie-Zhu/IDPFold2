@@ -114,3 +114,24 @@ def test_moe_router_output_extraction():
     assert torch.allclose(expert_weights.sum(dim=-1), torch.ones(10), atol=1e-6)
     assert expert_indices.min().item() >= 0
     assert expert_indices.max().item() < 3
+
+
+def test_save_moe_router_scores_writes_one_row_per_token(tmp_path):
+    torch = pytest.importorskip("torch")
+    from src.model.components.moe_modules_torch import save_moe_router_scores
+
+    scores = torch.tensor(
+        [
+            [0.1, 0.2, 0.3, 0.4, 0.5],
+            [1.2345678, 2.0, 3.0, 4.0, 5.0],
+        ],
+        dtype=torch.float32,
+    )
+    output_path = tmp_path / "moe_router_scores.txt"
+
+    save_moe_router_scores(scores, output_path)
+
+    assert output_path.read_text(encoding="utf-8").splitlines() == [
+        "0.100000,0.200000,0.300000,0.400000,0.500000",
+        "1.234568,2.000000,3.000000,4.000000,5.000000",
+    ]
