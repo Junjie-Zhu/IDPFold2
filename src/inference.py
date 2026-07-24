@@ -134,9 +134,18 @@ class GenerationDataset(Dataset):
         else:
             seq_data = []
             for i, row in df.iterrows():
-                names = row['test_case'].split(':')
+                name = row['test_case']
                 sequences = row['sequence'].split(':')
-                seq_data.extend([(names[j], sequences[j]) for j in range(len(names))])
+                seq_num = len(sequences)
+
+                if 'chain_ids' not in df.columns:
+                    names = [f"{name}_{j+1}" for j in range(seq_num)]
+                else:
+                    chain_ids = row['chain_ids'].split(':')
+                    assert len(chain_ids) == seq_num, f"Chain IDs length mismatch for {name}"
+                    names = [f"{name}_{chain_ids[j]}" for j in range(seq_num)]
+
+                seq_data.extend([(names[j], sequences[j]) for j in range(seq_num)])
 
         batch_converter = alphabet.get_batch_converter()
         total_sequences, num_batches = len(seq_data), len(seq_data) // BATCH_SIZE + (len(seq_data) % BATCH_SIZE != 0)
