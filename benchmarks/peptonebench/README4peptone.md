@@ -156,6 +156,32 @@ python calc_RDC.py \
 
 ## 6. Analyze SAXS and CS Outputs
 
+`PeptoneBench` assumes trajectories under the OUTPUT directory, so before analysis we have to copy our trajectory files accordingly:
+
+```python
+import os
+import shutil
+from tqdm import tqdm
+
+input_dir = '/PATH/TO/ENSEMBLE'
+output_dir = '/PATH/TO/SAXS_OUTPUT'
+target_systems = [i.replace('.csv', '').replace('Pepsi-', '') for i in os.listdir(output_dir) 
+                  if i.startswith('Pepsi-') and i.endswith('.csv')]
+for sub_dirs in tqdm(target_systems):
+    shutil.copy(f'{input_dir}/{sub_dirs}/topology.pdb', f'{output_dir}/{sub_dirs}.pdb')
+    shutil.copy(f'{input_dir}/{sub_dirs}/traj_no_clash.xtc', f'{output_dir}/{sub_dirs}.xtc')
+    
+output_dir = '/PATH/TO/CS_OUTPUT'
+target_systems = [i for i in os.listdir(input_dir) if not i.startswith('SAS')]
+for sub_dirs in tqdm(target_systems):
+    try:
+        shutil.copy(f'{input_dir}/{sub_dirs}/topology.pdb', f'{output_dir}/{sub_dirs}.pdb')
+        shutil.copy(f'{input_dir}/{sub_dirs}/traj_no_clash.xtc', f'{output_dir}/{sub_dirs}.xtc')
+    except Exception as e:
+        print(e)
+        continue
+```
+
 For standard SAXS and CS benchmark outputs, use the PeptoneBench command-line analyzer:
 
 ```bash
