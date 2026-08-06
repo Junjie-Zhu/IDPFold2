@@ -1,0 +1,6 @@
+biotite
+mdtraj
+numpy
+pandas
+scipy
+tqdm
