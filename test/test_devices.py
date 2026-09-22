@@ -31,6 +31,15 @@ def test_gpu_inference_smoke_when_available(tiny_model_config):
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available in this environment.")
 
+    capability = torch.cuda.get_device_capability(0)
+    sm_tag = f"sm_{capability[0]}{capability[1]}"
+    arch_list = torch.cuda.get_arch_list() if hasattr(torch.cuda, "get_arch_list") else []
+    if arch_list and sm_tag not in arch_list:
+        pytest.skip(
+            f"Installed PyTorch CUDA build does not support {sm_tag} "
+            f"(supported: {', '.join(arch_list)})."
+        )
+
     _run_tiny_inference(torch.device("cuda:0"), tiny_model_config)
     torch.cuda.synchronize()
 

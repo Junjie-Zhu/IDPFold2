@@ -21,7 +21,6 @@ setup(
         "loguru==0.7.2",
         "numpy==1.23.5",
         "pandas==1.5.3",
-        "rootutils",
         "scipy",
         "tqdm==4.66.4",
         "wget==3.2",
@@ -32,6 +31,8 @@ setup(
         ],
     },
     packages=find_packages(),
+    include_package_data=True,
+    package_data={"src": ["configs/*.yaml"]},
     entry_points={
         "console_scripts": [
             "idpfold2-train = src.train:main",

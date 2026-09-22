@@ -2,7 +2,6 @@ import math
 import os
 import warnings
 from typing import List, Optional, Union
-import rootutils
 import datetime
 
 
@@ -24,7 +23,6 @@ from src.utils.pdb_utils import to_pdb_simple, to_pdb
 from src.utils.cluster_utils import log_info
 from src.common.residue_constants import restypes
 
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
@@ -173,7 +171,7 @@ def get_resid(seq: str):
     return res_id
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="inference")
+@hydra.main(version_base="1.3", config_path="configs", config_name="inference")
 def main(args: DictConfig):
     logging_dir = os.path.join(args.logging_dir,
                                f"{args.prefix}_INF_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
@@ -346,9 +344,9 @@ def main(args: DictConfig):
                                     continue
                                 else:
                                     outfile.write(line)
-                            outfile.write("END\n")
                         # remove tmp files
                         os.remove(os.path.join(logging_dir, "tmp", f))
+                    outfile.write("END\n")
 
     # Clean up process group when finished
     if DIST_WRAPPER.world_size > 1:

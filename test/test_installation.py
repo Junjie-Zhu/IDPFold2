@@ -81,6 +81,14 @@ def test_core_package_imports():
     assert "A" in residue_constants.restypes
 
 
+def test_hydra_configs_are_packaged_with_src():
+    import src
+
+    config_dir = Path(src.__file__).resolve().parent / "configs"
+    assert (config_dir / "inference.yaml").is_file()
+    assert (config_dir / "train.yaml").is_file()
+
+
 def test_cli_modules_import_without_starting_jobs():
     if _installed_version() is None:
         pytest.skip("idpfold2 is not installed in this Python environment.")

@@ -20,5 +20,4 @@ dependencies:
     - torch-geometric=2.6.1
     - cpdb-protein
     - biopython
-    - rootutils
     - pytest

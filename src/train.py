@@ -2,7 +2,6 @@ import os
 import warnings
 from random import random
 
-import rootutils
 import datetime
 
 import torch
@@ -24,11 +23,10 @@ from src.utils.ddp_utils import DIST_WRAPPER, seed_everything
 from src.utils.cluster_utils import log_info
 from src.utils.pdb_utils import to_pdb_simple, to_pdb
 
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="train")
+@hydra.main(version_base="1.3", config_path="configs", config_name="train")
 def main(args: DictConfig):
     logging_dir = os.path.join(args.logging_dir, f"{args.task_prefix}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
     if DIST_WRAPPER.rank == 0:

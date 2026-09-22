@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import sys
 import types
+from pathlib import Path
 
 import pandas as pd
 import pytest
 
 
 def _import_generation_dataset(monkeypatch):
-    monkeypatch.setitem(
-        sys.modules,
-        "rootutils",
-        types.SimpleNamespace(setup_root=lambda *args, **kwargs: None),
-    )
     monkeypatch.setitem(
         sys.modules,
         "src.utils.cluster_utils",
@@ -65,7 +61,7 @@ def test_multimer_esm_embedding_generation_uses_chain_specific_names(tmp_path, m
     saved_paths = []
 
     def fake_save(tensor, path):
-        saved_paths.append(path.name if hasattr(path, "name") else path.rsplit("\\", 1)[-1])
+        saved_paths.append(Path(path).name)
 
     monkeypatch.setattr(torch, "save", fake_save)
 

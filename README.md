@@ -9,7 +9,7 @@ Implementation for [***Extending Conformational Ensemble Prediction to Multidoma
 
 `Recent news and updates`
 
-* [2026-04-16] We provide Dockerfile for installation on both NVIDIA and Ascend platform now. A colab notebook is also available now, try it [here](https://colab.research.google.com/github/Junjie-Zhu/IDPFold2/blob/main/notebooks/IDPFold2_colab_monomer_preview.ipynb).
+* [2026-04-16] A colab notebook is available now, try it [here](https://colab.research.google.com/github/Junjie-Zhu/IDPFold2/blob/main/notebooks/IDPFold2_colab_monomer_preview.ipynb).
 * [2026-07-20] We provide optimized [PeptoneBench](https://github.com/PeptoneLtd/peptonebench/tree/main), please refer to [benchmarks/peptonebench](benchmarks/peptonebench) for full guidance.
 
 ## Description
@@ -23,8 +23,7 @@ This repository contains training and inference code, and useful scripts for eva
 * [Installation](#Installation)
   * [Fetch checkpoints](#fetch-checkpoints)
   * [Install with conda](#install-with-conda)
-  * [Install with docker](#install-with-docker)
-* [Installation on Ascend 910B](#installation-on-ascend-910b)
+  * [Pytest](#pytest)
 * [Inference](#Inference)
   * [Monomers](#For-monomers)
   * [Multimers](#For-multimers)
@@ -75,105 +74,6 @@ pip install .
 * In some cases it will raise an undefined symbol error during installation, please refer to [this issue](https://github.com/databricks/megablocks/issues/159) for fixation. 
 * The acceleration effect of MegaBlocks has not been tested on our model as we mainly performed inference on Ascend 910B, which did not support this package.  Nevertheless, using either torch or Megablocks version merely affect the predicted structure.
 
-### Install with docker
-
-**Note:** Docker installation has not been tested since we cannot use docker on our HPC, please give feedback in issue if you meet any problem in installation.
-
-For full containerized usage, including CPU fallback, Ascend, Windows PowerShell volume syntax, and troubleshooting, see [docker/README.md](docker/README.md).
-
-```bash
-mkdir -p checkpoints inputs embeddings outputs
-docker build -t idpfold2-env .
-docker run --rm -it --gpus all \
-  -v $(pwd)/checkpoints:/workspace/checkpoints \
-  -v $(pwd)/inputs:/workspace/inputs \
-  -v $(pwd)/embeddings:/workspace/embeddings \
-  -v $(pwd)/outputs:/workspace/outputs \
-  -w /workspace/IDPFold-multimer \
-  idpfold2-env
-```
-
-Inside the container, run a small monomer inference:
-
-```bash
-idpfold2-infer \
-  prefix=MONOMER_DOCKER \
-  ckpt_dir=/workspace/checkpoints/IDPFold2_ema_0.999_260114.pth \
-  plm_emb_dir=/workspace/embeddings \
-  csv_dir=/workspace/IDPFold-multimer/data/monomer_example.csv \
-  nsamples=4 \
-  max_batch_length=3500 \
-  logging_dir=/workspace/outputs
-```
-
-### Installation on Ascend 910B
-
-We provide a dedicated `Dockerfile.ascend` for Ascend users.
-
-<details>
-<summary><strong>Click to expand: complete installation on Ascend 910B</strong></summary>
-
-#### 1) Prepare installer files
-
-Place the following files in the repository root before building:
-
-- `Ascend-cann-toolkit_8.2.RC1_linux-aarch64.run`
-- `Ascend-cann-kernels-910b_8.2.RC1_linux-aarch64.run`
-- (Optional) `Miniforge3-Linux-aarch64.sh` for offline/local Miniforge install
-
-#### 2) Build Ascend image
-
-```bash
-docker build -f Dockerfile.ascend \
-  --build-arg MINIFORGE_LOCAL_FILE="Miniforge3-Linux-aarch64.sh" \
-  --build-arg CANN_TOOLKIT_RUN="Ascend-cann-toolkit_8.2.RC1_linux-aarch64.run" \
-  --build-arg CANN_KERNELS_RUN="Ascend-cann-kernels-910b_8.2.RC1_linux-aarch64.run" \
-  --build-arg TORCH_PACKAGE="torch==2.6.0" \
-  --build-arg PYG_PACKAGE="torch-geometric==2.6.1" \
-  --build-arg TORCH_NPU_PACKAGE="torch-npu==2.6.0.post3" \
-  -t idpfold2-ascend-env .
-```
-
-#### 3) Run container (mount Ascend driver and devices)
-
-```bash
-docker run --rm -it --privileged \
-  -v /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro \
-  -v /etc/ascend_install.info:/etc/ascend_install.info:ro \
-  -v /usr/local/dcmi:/usr/local/dcmi:ro \
-  -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi:ro \
-  -v /dev:/dev \
-  -v $(pwd)/checkpoints:/workspace/checkpoints \
-  -v $(pwd)/inputs:/workspace/inputs \
-  -v $(pwd)/embeddings:/workspace/embeddings \
-  -v $(pwd)/outputs:/workspace/outputs \
-  -w /workspace/IDPFold-multimer \
-  idpfold2-ascend-env
-```
-
-#### 4) Quick check in container
-
-```bash
-which npu-smi || true
-npu-smi info
-python -c "import torch, torch_npu; print(torch.__version__)"
-```
-
-If `torch_npu` still reports missing `libhccl.so`/`libascend_hal.so`, run this manually in the container:
-
-```bash
-export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/lib64:/usr/local/Ascend/ascend-toolkit/8.2.RC1/hccl/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/driver:/usr/local/dcmi/lib64:${LD_LIBRARY_PATH}
-python -c "import torch, torch_npu; print(torch.__version__)"
-```
-
-**Note:** 
-
-* If your host paths or installer filenames differ, update the corresponding Docker build args and mount paths.
-* The Ascend Dockerfile pins `biotite==0.41.0` and `numpy==1.24.0` to match the tested environment. If you upgrade to a newer aarch64 `biotite`, update the numpy pin accordingly.
-* The Ascend image does not install `mmseqs2`; training workflows that require clustering need precomputed clusters or a separate `mmseqs2` installation.
-
-</details>
-
 ### Pytest
 
 Run tests to check if everything runs smoothly.
@@ -181,6 +81,8 @@ Run tests to check if everything runs smoothly.
 ```bash
 python -m pytest
 ```
+
+The same CPU tests are also run by GitHub Actions on Python 3.11. CUDA and Ascend smoke tests are skipped in CI and on machines whose installed PyTorch build does not support the local GPU.
 
 ## Inference
 
@@ -192,7 +94,7 @@ Directory to which the PLM embeddings are saved should be assigned. If no embedd
 
 ```bash
 python src/inference.py \
-	prefix=MONOMER \
+	  prefix=MONOMER \
     ckpt_dir=/PATH/TO/CHECKPOINT/IDPFold2_ema_0.999_260114.pth \
     plm_emb_dir=./embeddings \
     csv_dir=/PATH/TO/INPUT/SEQUENCES \
@@ -219,7 +121,7 @@ Inference for multimers mainly differs from that for monomer in the `.csv` file.
 
 ```bash
 python src/inference.py \
-	prefix=MULTIMER \
+  	prefix=MULTIMER \
     ckpt_dir=/PATH/TO/CHECKPOINT/IDPFold2_ema_0.999_260114.pth \
     plm_emb_dir=./embeddings \
     csv_dir=/PATH/TO/INPUT/SEQUENCES \
@@ -283,11 +185,11 @@ The hybrid dataset was created manually in our implementation by concatenation t
 
 ```bash
 python src/train.py \
-	task_prefix=HYBRID_TRAIN \
-	batch_size=8 \
-	epochs=500 \
-	data.data_dir=/PATH/TO/DATASET \
-	data.plm_emb_dir=/PATH/TO/EMBEDDING \
+  	task_prefix=HYBRID_TRAIN \
+  	batch_size=8 \
+  	epochs=500 \
+  	data.data_dir=/PATH/TO/DATASET \
+  	data.plm_emb_dir=/PATH/TO/EMBEDDING \
 ```
 
 **Important arguments:**
@@ -300,7 +202,7 @@ python src/train.py \
   * `cluster_seqid_{split_sequence_similarity}_{data_dir}.tsv/fasta`: Cluster info.
 * `data.plm_emb_dir`: Directory to PLM embeddings. For training you have to extract the embeddings first, you may refer to `scripts/get_esm_embedding.py` for this step.
 
-You can find all arguments in `configs/train.yaml`. Distributed training is supported with `torchrun`, but **training across multiple machines is not supported**. Main reason for this is that device-level balance loss in MoE is not implemented, and training across machines may result in unexpected imbalanced expert assignment.
+You can find all arguments in `src/configs/train.yaml`. Distributed training is supported with `torchrun`, but **training across multiple machines is not supported**. Main reason for this is that device-level balance loss in MoE is not implemented, and training across machines may result in unexpected imbalanced expert assignment.
 
 **Train with multimer data**
 
@@ -319,10 +221,10 @@ If you want to finetune IDPFold2 from our pretrained checkpoints, both the model
 
 ```bash
 python src/train.py \
-	... \
-	resume.ckpt_dir=/PATH/TO/CHECKPOINT/IDPFold2_260114.pth \
-	resume.ema_dir=/PATH/TO/CHECKPOINT/IDPFold2_ema_0.999_260114.pth \
-	resume.load_model_only=False
+	  ... \
+  	resume.ckpt_dir=/PATH/TO/CHECKPOINT/IDPFold2_260114.pth \
+  	resume.ema_dir=/PATH/TO/CHECKPOINT/IDPFold2_ema_0.999_260114.pth \
+  	resume.load_model_only=False
 ```
 
 ## Quick Evaluation
