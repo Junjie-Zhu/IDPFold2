@@ -9,7 +9,7 @@ Implementation for [***Extending Conformational Ensemble Prediction to Multidoma
 
 `Recent news and updates`
 
-* [2026-04-16] A colab notebook is available now, try it [here](https://colab.research.google.com/github/Junjie-Zhu/IDPFold2/blob/main/notebooks/IDPFold2_colab_monomer_preview.ipynb).
+* [2026-04-16] A colab notebook is available now, try it [here](https://colab.research.google.com/github/Junjie-Zhu/IDPFold2/blob/main/notebooks/IDPFold2_colab_monomer_preview.ipynb). Please note that the notebook was tested with Colab runtime version 2026.04, and you may have to change to this version if the latest one does not work.
 * [2026-07-20] We provide optimized [PeptoneBench](https://github.com/PeptoneLtd/peptonebench/tree/main), please refer to [benchmarks/peptonebench](benchmarks/peptonebench) for full guidance.
 
 ## Description
