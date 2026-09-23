@@ -116,6 +116,26 @@ def test_moe_router_output_extraction():
     assert expert_indices.max().item() < 3
 
 
+def test_no_moe_forward_accepts_force_moe_capacity(tiny_model_config):
+    torch = pytest.importorskip("torch")
+    from src.model.protein_transformer import ProteinTransformerAF3
+
+    config = dict(tiny_model_config)
+    config["use_moe"] = False
+    model = ProteinTransformerAF3(**config)
+    model.eval()
+
+    batch = make_tiny_batch(torch, torch.device("cpu"))
+    with torch.inference_mode():
+        output_limited = model(batch, force_moe_capacity=True)
+        output_unlimited = model(batch, force_moe_capacity=False)
+
+    assert output_limited["coors_pred"].shape == (1, 4, 3)
+    assert output_unlimited["coors_pred"].shape == (1, 4, 3)
+    assert torch.isfinite(output_limited["coors_pred"]).all()
+    assert torch.isfinite(output_unlimited["coors_pred"]).all()
+
+
 def test_save_moe_router_scores_writes_one_row_per_token(tmp_path):
     torch = pytest.importorskip("torch")
     from src.model.components.moe_modules_torch import save_moe_router_scores

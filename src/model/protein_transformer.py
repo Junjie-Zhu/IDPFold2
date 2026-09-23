@@ -234,7 +234,10 @@ class MultiheadAttnAndTransition(torch.nn.Module):
         return x_attn * mask[..., None]
 
     def _apply_transition(self, x, cond, mask, force_moe_capacity=True):
-        x_tr = self.transition(x, cond, mask, force_moe_capacity)
+        if self.use_moe:
+            x_tr = self.transition(x, cond, mask, force_capacity=force_moe_capacity)
+        else:
+            x_tr = self.transition(x, cond, mask)
         if self.residual_transition:
             x_tr = x_tr + x
         return x_tr * mask[..., None]

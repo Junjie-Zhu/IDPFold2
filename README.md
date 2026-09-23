@@ -35,14 +35,17 @@ This repository contains training and inference code, and useful scripts for eva
 * [Quick Evaluation](#Quick-Evaluation)
   * [Backmapping](#Backmapping)
   * [Benchmarks](#Benchmarks)
+* [Reproducibility](#Reproducibility)
+  * [Expert utilization](#Expert-utilization)
 * [Contact](#Contact)
 * [Acknowledgement](#Acknowledgement)
+* [Project layout](#Project-layout)
 
 ## Installation
 
 ### Fetch checkpoints 
 
-**Download weights from [Zenodo](https://zenodo.org/records/18239596).** 
+**Download weights from [Zenodo](https://doi.org/10.5281/zenodo.18239595).** 
 
 * `IDPFold2_ema_0.999_260114.pth`: For **inference**, or EMA checkpoint for training.
 * `IDPFold2_260114.pth`:  For training only.
@@ -261,7 +264,31 @@ We provided useful benchmark scripts under `benchmarks/`, please refer to guidan
 
 ### Expert utilization
 
+Router probabilities can be recorded during any forward pass that uses the torch Mixture-of-Experts implementation in [`src/model/components/moe_modules_torch.py`](src/model/components/moe_modules_torch.py). This hook lives only in that file. The MegaBlocks module [`src/model/components/moe_modules.py`](src/model/components/moe_modules.py) keeps the same forward interface and does not write scores.
 
+The dump is off by default, because one forward process produces tons of scores and make the file extremely large. To turn it on, uncomment `save_moe_router_scores(scores)` inside `MoE.router` (line 99):
+
+```python
+98  scores = self.router_linear(x.view(-1, x.shape[-1]))
+99  save_moe_router_scores(scores)
+```
+
+Scores are written to `./moe_router_scores.txt` (`_MOE_ROUTER_SCORES_PATH`). The file is opened in append mode, so delete it before a new run, or change the constant to another path.
+
+Each router call appends one CSV row per flattened token. A row has `n_experts` columns of pre-top-k softmax scores, printed with six decimal places. The token count is `batch × length`, and that length includes registers and padding positions. Rows from every trunk layer and every model call are concatenated in call order, including each ODE step during sampling. To split the file by layer, use `n_tokens = batch * (length + num_registers)` together with `nlayers` from the config.
+
+Saving detaches the scores and copies them to CPU, so gradients are unchanged. A long sampling run will grow this file quickly.
+
+```python
+import numpy as np
+
+scores = np.loadtxt("moe_router_scores.txt", delimiter=",")  # [n_rows, n_experts]
+mean_prob = scores.mean(axis=0)
+assignment = scores.argmax(axis=1)
+argmax_fraction = np.bincount(assignment, minlength=scores.shape[1]) / len(assignment)
+```
+
+`mean_prob` is the average router probability of each expert. `argmax_fraction` is the fraction of tokens whose highest probability falls on that expert. The default config activates `n_activated_experts: 2` experts per token, so this argmax fraction is a single-expert summary of the router distribution.
 
 ### Figure bundle
 
@@ -280,4 +307,59 @@ The codebase is mainly constructed on [Proteina](https://github.com/NVIDIA-Digit
 The generated structures are backmapped with [cg2all](https://github.com/huhlim/cg2all).
 
 Thank the open-source benchmarks [BioEmu-Benchmarks](https://github.com/microsoft/bioemu-benchmarks/tree/main/bioemu_benchmarks) and [PeptoneBench](https://github.com/PeptoneLtd/peptonebench/tree/main).
+
+## Project layout
+
+```text
+IDPFold2/
+├── src/                                          # model, data, training, and inference
+│   ├── train.py                                  # Hydra training entry: data, flow-matching loss, MoE balance loss, EMA checkpoints
+│   ├── inference.py                              # CSV ensemble generation and PDB writing
+│   ├── configs/
+│   │   ├── train.yaml                            # training Hydra config, including use_moe
+│   │   └── inference.yaml                        # inference Hydra config, including use_moe
+│   ├── data/
+│   │   ├── dataset.py                            # PDB selection, clustering splits, dataset, and datamodule
+│   │   └── transforms.py                         # chain breaks, padding, and global SO(3) rotation
+│   ├── model/
+│   │   ├── protein_transformer.py                # AF3-style trunk; MoE or plain transition selected by use_moe
+│   │   ├── integral.py                           # training step, ODE sampling, and flow, bond, and MoE losses
+│   │   ├── optimizer.py                          # Adam/AdamW and the AlphaFold 3 learning-rate schedule
+│   │   ├── ema.py                                # EMA weight wrapper
+│   │   ├── flow_matching/
+│   │   │   └── r3flow.py                         # flow matching on residue coordinates
+│   │   └── components/
+│   │       ├── af3_modules.py                    # adaptive LayerNorm, SwiGLU, and the transition MLP
+│   │       ├── feature_factory.py                # sequence and pair features: PLM, time, residue index, distances
+│   │       ├── pair_bias_attn.py                 # pair-biased attention
+│   │       ├── moe_modules_torch.py              # default torch MoE, load-balance loss, and the router-score dump
+│   │       ├── moe_modules.py                    # MegaBlocks MoE with the same interface
+│   │       ├── moe_operations.py                 # capacity-binned gather and scatter
+│   │       └── motif_factory.py                  # motif contig sampling used by train and inference
+│   ├── common/
+│   │   ├── residue_constants.py                  # residue names, atoms, and restype maps
+│   │   └── atom37_constants.py                   # atom37 ordering and the OpenFold index map
+│   └── utils/
+│       ├── pdb_utils.py                          # write CA PDBs and mmCIF
+│       ├── graphein_utils.py                     # PDB/mmCIF loading, download, and graph conversion
+│       ├── dense_dataloader_utils.py             # pad variable-length proteins into dense batches
+│       ├── cluster_utils.py                      # sequence clustering and cluster-aware sampling
+│       ├── ddp_utils.py                          # distributed wrapper and seeding
+│       ├── align_utils.py                        # masked mean and Kabsch alignment
+│       └── idx_emb_utils.py                      # sinusoidal index and time embeddings
+├── scripts/
+│   ├── quick_analysis.py                         # radius of gyration and end-to-end distance
+│   ├── _cg2all.py                                # coarse-grained to all-atom backmapping
+│   ├── get_esm_embedding.py                      # ESM-2 embeddings for inference or training
+│   └── process_training_trajs.py                 # simulation trajectory preprocessing
+├── benchmarks/
+│   ├── bioemu-benchmark/                         # MD-emulation and multi-conformation metrics; see README4bioemu.md
+│   ├── peptonebench/                             # SAXS, CS, RDC, and PRE analysis; see README4peptone.md
+│   └── idr-multimer-benchmark/get_dockq.py       # DockQ for IDR multimer ensembles
+├── test/                                         # installation, device, dataset, and functional-block tests
+├── data/                                         # example monomer and multimer CSV inputs
+├── notebooks/                                    # Colab monomer preview
+├── assets/                                       # PyMOL settings
+└── megablocks/                                   # vendored MegaBlocks subset used by moe_modules.py
+```
 
