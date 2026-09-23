@@ -34,8 +34,7 @@ This repository contains training and inference code, and useful scripts for eva
   * [Finetune](#Finetune)
 * [Quick Evaluation](#Quick-Evaluation)
   * [Backmapping](#Backmapping)
-  * [RMSD and Native Contact](#RMSD-and-Native-Contact)
-  * [Reweighting](#Reweighting)
+  * [Benchmarks](#Benchmarks)
 * [Contact](#Contact)
 * [Acknowledgement](#Acknowledgement)
 
@@ -253,6 +252,20 @@ python scripts/_cg2all.py -i /PATH/TO/GENERATED/ENSEMBLE -o /PATH/TO/OUTPUT/STRU
 ### Benchmarks
 
 We provided useful benchmark scripts under `benchmarks/`, please refer to guidances in specific sub-directories.
+
+## Reproducibility
+
+### Retrain
+
+
+
+### Expert utilization
+
+
+
+### Figure bundle
+
+
 
 ## Contact
 
