@@ -24,10 +24,48 @@ The example commands use these placeholders:
 Each ensemble should be stored in the structure expected by PeptoneBench:
 
 ```text
-10036_1_1_1/
-|-- topology.pdb
-`-- traj_no_clash.xtc
+ENSEMBLE/
+`-- 10036_1_1_1/
+    |-- topology.pdb
+    `-- traj_no_clash.xtc
 ```
+
+The local scripts also assume this layout for the downloaded PeptoneDB-Integrative experimental data. Protein names are the subdirectory names:
+
+```text
+PeptoneDB-Integrative/
+|-- PeptoneDB-Integrative.csv          # columns include label, length, and gscores
+`-- 10036_1_1_1/
+    |-- info.csv                       # pH, Experiment, Temp(K), PRE_MHz
+    |-- SAXS_bift.dat                  # whitespace-separated q, I(q), sigma
+    |-- CS.dat
+    |-- RDC_HN.dat
+    `-- PRE-...-<site>.dat             # site is the residue number after the last hyphen
+```
+
+`addhydrogens.py` writes one protonated model per frame. `calc_PRE.py` and `calc_RDC.py` read those frames and write their outputs beside them:
+
+```text
+PDB_OUTPUT/
+`-- 10036_1_1_1/
+    |-- frame1.pdb
+    |-- frame2.pdb
+    |-- PREdata-<site>.npy             # written by calc_PRE.py
+    `-- RDC/
+        `-- RDC.csv                    # written by calc_RDC.py
+```
+
+The integrative analyzers look for forward-model files by these names inside the directory passed with `-i`:
+
+```text
+INTEGRATIVE_OUTPUT/
+|-- Pepsi-10036_1_1_1.csv              # read by analyze_saxs_integrative.py
+|-- SAXSrew_10036_1_1_1.npy            # written there, then read by analyze_pre_integrative.py
+|-- UCBshift-10036_1_1_1.csv           # read by analyze_cs_integrative.py
+`-- CSrew_10036_1_1_1.npy              # written there, then read by analyze_rdc_integrative.py
+```
+
+`analyze_pre_integrative.py --pre_path` is the `PDB_OUTPUT` tree above. It writes `PRE_analysis_<protein>.json` into that directory. `analyze_rdc_integrative.py --rdc_path` is the same tree, and it writes `RDC_analysis_<protein>.npy` there. The RDC script reads `CSrew_<protein>.npy` from `-i`.
 
 ## 1. Install External Software for Forward Models
 

@@ -16,17 +16,19 @@ from tqdm import tqdm
 
 warnings.filterwarnings('ignore', category=UserWarning)
 
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+
 root_dir = sys.argv[1]
 assert os.path.exists(root_dir), f'Root directory does not exist: {root_dir}'
 input_dir = os.path.join(root_dir)
 processing_dir = os.path.join(root_dir, 'processing')
 os.makedirs(processing_dir, exist_ok=True)
 
-ref_cryp = pd.read_csv('./crypticpocket/references.csv')
-ref_domi = pd.read_csv('./domainmotion/references.csv')
-ref_loca = pd.read_csv('./localunfolding/references.csv')
-ref_ood60 = pd.read_csv('./ood60/references.csv')
-ref_oodval = pd.read_csv('./oodval/references.csv')
+ref_cryp = pd.read_csv(os.path.join(SCRIPT_DIR, 'crypticpocket', 'references.csv'))
+ref_domi = pd.read_csv(os.path.join(SCRIPT_DIR, 'domainmotion', 'references.csv'))
+ref_loca = pd.read_csv(os.path.join(SCRIPT_DIR, 'localunfolding', 'references.csv'))
+ref_ood60 = pd.read_csv(os.path.join(SCRIPT_DIR, 'ood60', 'references.csv'))
+ref_oodval = pd.read_csv(os.path.join(SCRIPT_DIR, 'oodval', 'references.csv'))
 
 alignment_matrix = SubstitutionMatrix.std_protein_matrix()
 
@@ -172,16 +174,18 @@ def main():
         consolidated['global_rmsd'].append(res['global_rmsd'])
 
     # save results
-    with open('./metrics_rmsd.pkl', 'wb') as f:
+    with open(os.path.join(root_dir, 'metrics_rmsd.pkl'), 'wb') as f:
         import pickle
         pickle.dump(consolidated, f)
 
 
 def find_reference(name, benchmark):
-    ref_local_info = json.load(open(f'./{benchmark}/local_residinfo/{name}.json', 'r')) \
-        if os.path.exists(f'./{benchmark}/local_residinfo/{name}.json') else None
-    ref_structures = os.listdir(f'./{benchmark}/reference/{name}')
-    ref = [strucio.load_structure(os.path.join(f'./{benchmark}/reference/{name}', f)) for f in ref_structures if f.endswith('.pdb')]
+    benchmark_dir = os.path.join(SCRIPT_DIR, benchmark)
+    local_info_path = os.path.join(benchmark_dir, 'local_residinfo', f'{name}.json')
+    ref_local_info = json.load(open(local_info_path, 'r')) if os.path.exists(local_info_path) else None
+    reference_dir = os.path.join(benchmark_dir, 'reference', name)
+    ref_structures = os.listdir(reference_dir)
+    ref = [strucio.load_structure(os.path.join(reference_dir, f)) for f in ref_structures if f.endswith('.pdb')]
     return ref, ref_local_info, ref_structures
 
 

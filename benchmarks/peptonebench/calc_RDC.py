@@ -101,8 +101,12 @@ def process_single_frame(frame, directory, pales_exe, wdir):
 # === MAIN EXECUTION ===
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='python calc_exp_data.py')
-    parser.add_argument('--directory', '-d', type=str, required=True, help='directory containing all pdb files')
-    parser.add_argument('--pales', '-p', type=str, required=True, help='path to pales executable')
+    parser.add_argument(
+        '--directory', '-d', type=str, required=True,
+        help='Protonated PDB root from addhydrogens.py. Each protein directory contains frame1.pdb, frame2.pdb, ... '
+             'Writes {protein}/RDC/RDC.csv.',
+    )
+    parser.add_argument('--pales', '-p', type=str, required=True, help='Path to the PALES executable')
     parser.add_argument('--cores', type=int, default=os.cpu_count(), help='Number of parallel cores')
     args = parser.parse_args()
 
@@ -117,7 +121,7 @@ if __name__ == "__main__":
 
         # Parallel Pool
         worker_func = functools.partial(process_single_frame, directory=os.path.join(args.directory, system),
-                                        pales_exe=PALES_EXE, wdir=wdir)
+                                        pales_exe=args.pales, wdir=wdir)
 
         results = []
         with mp.Pool(args.cores) as executor:

@@ -254,7 +254,11 @@ python scripts/_cg2all.py -i /PATH/TO/GENERATED/ENSEMBLE -o /PATH/TO/OUTPUT/STRU
 
 ### Benchmarks
 
-We provided useful benchmark scripts under `benchmarks/`, please refer to guidances in specific sub-directories.
+Benchmark scripts live under `benchmarks/`. Each workflow documents the external data layout it expects:
+
+* [benchmarks/bioemu-benchmark/README4bioemu.md](benchmarks/bioemu-benchmark/README4bioemu.md)
+* [benchmarks/peptonebench/README4peptone.md](benchmarks/peptonebench/README4peptone.md)
+* [benchmarks/idr-multimer-benchmark/README4idr.md](benchmarks/idr-multimer-benchmark/README4idr.md)
 
 ## Reproducibility
 
@@ -355,7 +359,7 @@ IDPFold2/
 ├── benchmarks/
 │   ├── bioemu-benchmark/                         # MD-emulation and multi-conformation metrics; see README4bioemu.md
 │   ├── peptonebench/                             # SAXS, CS, RDC, and PRE analysis; see README4peptone.md
-│   └── idr-multimer-benchmark/get_dockq.py       # DockQ for IDR multimer ensembles
+│   └── idr-multimer-benchmark/                   # multimer DockQ; see README4idr.md
 ├── test/                                         # installation, device, dataset, and functional-block tests
 ├── data/                                         # example monomer and multimer CSV inputs
 ├── notebooks/                                    # Colab monomer preview

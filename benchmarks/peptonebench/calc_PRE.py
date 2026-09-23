@@ -9,6 +9,7 @@ import gzip
 from concurrent.futures import ProcessPoolExecutor
 import functools
 from tqdm import tqdm
+import argparse
 
 
 # --- HELPER FUNCTIONS ---
@@ -71,85 +72,85 @@ def process_single_frame_pre(frame_idx, protein_path, site, temp, libname):
     }
 
 
-# === CONFIG ===
-import argparse
+def main():
+    parser = argparse.ArgumentParser(description='Calculate PRE profiles for protonated ensemble frames.')
+    parser.add_argument(
+        '--input-root', '-i', type=str, required=True,
+        help='Protonated PDB root from addhydrogens.py. Each protein directory contains frame1.pdb, frame2.pdb, ...',
+    )
+    parser.add_argument(
+        '--exp-root', '-e', type=str, required=True,
+        help='PeptoneDB-Integrative root. A protein is used when a subdirectory contains info.csv and a PRE *.dat file.',
+    )
+    parser.add_argument('--libname', type=str, default='MTSSL MMMx')
+    parser.add_argument('--num-cores', type=int, default=os.cpu_count())
+    args = parser.parse_args()
+    input_root = args.input_root
+    exp_root = args.exp_root
+    libname = args.libname
+    num_cores = args.num_cores
 
-argparse.add_argument('--input-root', '-i', type=str, required=True)
-argparse.add_argument('--exp-root', '-e', type=str, required=True)
-argparse.add_argument('--libname', type=str, default='MTSSL MMMx')
-argparse.add_argument('--num-cores', type=int, default=os.cpu_count())
+    proteins = [f for f in os.listdir(exp_root) if os.path.isdir(os.path.join(exp_root, f))]
+    preproteins_info = {}
 
-args = argparse.parse_args()
-input_root = args.input_root
-exp_root = args.exp_root
-libname = args.libname
-NUM_CORES = args.num_cores
+    for protein in proteins:
+        datfiles = find_dat_filenames(os.path.join(exp_root, protein))
+        if any('PRE' in f for f in datfiles):
+            info = pd.read_csv(os.path.join(exp_root, protein, 'info.csv'))
+            sites, temps = [], []
+            for file in datfiles:
+                if 'PRE' in file:
+                    res = int(file.split('.')[0].split('-')[-1])
+                    dataset = file[:-4]
+                    temp = np.mean(info[info['Experiment'] == dataset]['Temp(K)'])
+                    sites.append(res)
+                    temps.append(temp)
+            preproteins_info[protein] = {'Sites': sites, 'Temperatures': temps}
 
-# === Load protein list and info (Same as your original logic) ===
-proteins = [f for f in os.listdir(exp_root) if os.path.isdir(os.path.join(exp_root, f))]
-PREproteins_info = {}
+    for protein, info in preproteins_info.items():
+        protein_path = os.path.join(input_root, protein)
 
-for protein in proteins:
-    datfiles = find_dat_filenames(os.path.join(exp_root, protein))
-    if any('PRE' in f for f in datfiles):
-        info = pd.read_csv(os.path.join(exp_root, protein, 'info.csv'))
-        sites, temps = [], []
-        for file in datfiles:
-            if 'PRE' in file:
-                res = int(file.split('.')[0].split('-')[-1])
-                dataset = file[:-4]
-                temp = np.mean(info[info['Experiment'] == dataset]['Temp(K)'])
-                sites.append(res);
-                temps.append(temp)
-        PREproteins_info[protein] = {'Sites': sites, 'Temperatures': temps}
+        for site, temp in zip(info['Sites'], info['Temperatures']):
+            final_output = os.path.join(protein_path, f"PREdata-{site}.npy")
 
-# === MAIN LOOP ===
-for protein, info in PREproteins_info.items():
-    protein_path = os.path.join(input_root, protein)
+            if os.path.exists(final_output):
+                print(f"Skipping {protein} Site {site} (Already exists)")
+                continue
 
-    for site, temp in zip(info['Sites'], info['Temperatures']):
-        final_output = os.path.join(protein_path, f"PREdata-{site}.npy")
+            nframes = len(find_pdb_filenames(protein_path))
+            print(f"Parallelizing {protein} Site {site}: {nframes} frames on {num_cores} cores")
 
-        if os.path.exists(final_output):
-            print(f"Skipping {protein} Site {site} (Already exists)")
-            continue
+            worker_func = functools.partial(process_single_frame_pre,
+                                            protein_path=protein_path,
+                                            site=site, temp=temp,
+                                            libname=libname)
 
-        nframes = len(find_pdb_filenames(protein_path))
-        print(f"Parallelizing {protein} Site {site}: {nframes} frames on {NUM_CORES} cores")
+            if num_cores == 1:
+                results = []
+                for frame_idx in tqdm(range(1, nframes + 1), desc=f"Site {site}"):
+                    result = worker_func(frame_idx)
+                    results.append(result)
+            else:
+                with ProcessPoolExecutor(max_workers=num_cores) as executor:
+                    results = list(tqdm(executor.map(worker_func, range(1, nframes + 1)),
+                                        total=nframes, desc=f"Site {site}"))
 
-        # Prepare worker
-        worker_func = functools.partial(process_single_frame_pre,
-                                        protein_path=protein_path,
-                                        site=site, temp=temp,
-                                        libname=libname)
+            valid_results = [r for r in results if r['success']]
+            if not valid_results:
+                continue
 
-        # Run Multiprocessing
-        if NUM_CORES == 1:
-            results = []
-            for frame_idx in tqdm(range(1, nframes + 1), desc=f"Site {site}"):
-                result = worker_func(frame_idx)
-                results.append(result)
-        else:
-            results = []
-            with ProcessPoolExecutor(max_workers=NUM_CORES) as executor:
-                # We use range(1, nframes + 1) to match your frame naming
-                results = list(tqdm(executor.map(worker_func, range(1, nframes + 1)),
-                                    total=nframes, desc=f"Site {site}"))
+            resdict = {
+                'Residue': valid_results[0]['residues'],
+                'r3': np.concatenate([r['r3'] for r in valid_results], axis=0),
+                'r6': np.concatenate([r['r6'] for r in valid_results], axis=0),
+                'angular': np.concatenate([r['angular'] for r in valid_results], axis=0)
+            }
 
-        # Filter failed tasks and aggregate
-        valid_results = [r for r in results if r['success']]
-        if not valid_results:
-            continue
+            np.save(final_output, resdict)
+            print(f"Saved: {final_output}")
 
-        # Concatenate results
-        resdict = {
-            'Residue': valid_results[0]['residues'],
-            'r3': np.concatenate([r['r3'] for r in valid_results], axis=0),
-            'r6': np.concatenate([r['r6'] for r in valid_results], axis=0),
-            'angular': np.concatenate([r['angular'] for r in valid_results], axis=0)
-        }
+    print('All done!')
 
-        np.save(final_output, resdict)
-        print(f"Saved: {final_output}")
 
-print('All done!')
+if __name__ == '__main__':
+    main()

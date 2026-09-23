@@ -75,27 +75,24 @@ oodval/
 
 ## 2. Analyze MD Emulation
 
-Run the MD-emulation evaluator from this directory:
+Run the MD-emulation evaluator from this directory. Reference assets are read from the directory that contains the script, so the default `--reference` still finds `testcases.csv` when the assets sit next to these files. `--sample_dir` and `--output_dir` are relative to the working directory.
 
 ```bash
-python analyze_md_emulation.py
+python analyze_md_emulation.py \
+    --reference /PATH/TO/BIOEMU_ASSETS/md_emulation_benchmark_0.1/md_emulation/testcases.csv \
+    --sample_dir /PATH/TO/SAMPLES \
+    --output_dir /PATH/TO/RESULTS
 ```
 
-By default, the script reads:
+The defaults are:
 
 ```text
-reference = md_emulation_benchmark_0.1/md_emulation/testcases.csv
-sample_dir = samples
-output_dir = results
+--reference   <this directory>/md_emulation_benchmark_0.1/md_emulation/testcases.csv
+--sample_dir  samples
+--output_dir  results
 ```
 
-To use other paths, edit the three variables in the `if __name__ == '__main__'` block of `analyze_md_emulation.py`:
-
-```python
-reference = '/PATH/TO/BIOEMU_ASSETS/md_emulation_benchmark_0.1/md_emulation/testcases.csv'
-sample_dir = '/PATH/TO/SAMPLES'
-results.save_results('/PATH/TO/RESULTS')
-```
+`testcases.csv` must contain a `test_case` column. Every listed case is loaded from `{sample_dir}/{test_case}/topology.pdb` and `{sample_dir}/{test_case}/traj.dcd`.
 
 The script loads generated trajectories with `mdtraj`, projects them into the BioEmu MD-emulation coordinates, compares the sampled free-energy surface with the reference surface, and writes:
 
@@ -109,7 +106,7 @@ It also prints aggregate `mae`, `rmse`, and `coverage` metrics.
 
 ## 3. Compare to Multi-Conformation References
 
-Run the RMSD/contact comparison from this directory:
+Reference tables and PDB files are read from the benchmark folders next to `compare_to_multi_conf.py`, not from the working directory.
 
 ```bash
 python compare_to_multi_conf.py /PATH/TO/PREDICTIONS

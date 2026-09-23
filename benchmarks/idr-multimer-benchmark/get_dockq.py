@@ -311,15 +311,32 @@ def _mp_fn(task):
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--traj_dir', type=str, default='./aa_multimers')
-    parser.add_argument('--ref_dir', type=str, default='/lustre/home/acct-clschf/clschf/jjzhu/datasets/IDPFold_mul_dataset/test_set/multimers/pnas_multimers/pdb/')
-    parser.add_argument('--chain_id_dict', type=str, default='./multimer_chain_id.csv')
+    parser = argparse.ArgumentParser(
+        description='Maximum DockQ of predicted multimer ensembles against reference PDBs.'
+    )
+    parser.add_argument(
+        '--traj_dir', type=str, required=True,
+        help='Predicted ensembles. Each case is a subdirectory named like the reference PDB stem, '
+             'containing topology.pdb and traj_no_clash.xtc, traj.xtc, or traj.dcd.',
+    )
+    parser.add_argument(
+        '--ref_dir', type=str, required=True,
+        help='Reference structures. One {case}.pdb per case.',
+    )
+    parser.add_argument(
+        '--chain_id_dict', type=str, default=None,
+        help='Optional CSV with columns case, chain_keys, chain_ids. '
+             'chain_keys are A:B and chain_ids are the matching chain IDs in the reference PDB.',
+    )
+    parser.add_argument(
+        '--output', type=str, default='./dockq_scores.csv',
+        help='CSV of the maximum DockQ for each case. Default: ./dockq_scores.csv',
+    )
     args = parser.parse_args()
     
     traj_dir = args.traj_dir
     ref_dir = args.ref_dir
-    chain_id_dict = _parse_chain_id_dict(args.chain_id_dict)
+    chain_id_dict = _parse_chain_id_dict(args.chain_id_dict) if args.chain_id_dict else {}
 
     trajs = [i.replace('.pdb', '') for i in os.listdir(ref_dir) if i.endswith('.pdb')]
     tasks = []
@@ -361,7 +378,7 @@ def main():
                 dqs[traj] = dockq
 
     dqs = pd.DataFrame.from_dict(dqs, orient='index', columns=['dockq'])
-    dqs.to_csv('./dockq_scores.csv')
+    dqs.to_csv(args.output)
 
 
 if __name__ == '__main__':

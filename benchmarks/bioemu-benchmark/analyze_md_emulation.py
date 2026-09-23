@@ -1,6 +1,8 @@
 from pathlib import Path
+import argparse
 import os
 import warnings
+from functools import partial
 from abc import ABC
 from dataclasses import dataclass
 import multiprocessing as mp
@@ -144,7 +146,7 @@ def evaluate_md_emulation(
     return results
 
 
-def process_fn(test_case):
+def process_fn(test_case, sample_dir):
     top_path = os.path.join(sample_dir, test_case, 'topology.pdb')
     traj_path = os.path.join(sample_dir, test_case, 'traj.dcd')
     traj = mdtraj.load(traj_path, top=top_path)
@@ -156,26 +158,42 @@ def get_indexed_samples(
     sample_dir: StrPath,
 ):
     reference = pd.read_csv(reference)['test_case'].tolist()
+    worker = partial(process_fn, sample_dir=sample_dir)
     indexed_sample_dict = {}
     if os.cpu_count() == 1:
-        for test_case in tqdm(reference):
-            traj_path = os.path.join(sample_dir, f'{test_case}.pdb')
-            indexed_sample_dict[test_case] = mdtraj.load(traj_path)
+        results = [worker(test_case) for test_case in tqdm(reference)]
     else:
         process_num = min(os.cpu_count(), len(reference))
         with mp.Pool(process_num) as pool:
-            results = list(tqdm(pool.imap(process_fn, reference), total=len(reference)))
-        for test_case, traj in results:
-            indexed_sample_dict[test_case] = traj
+            results = list(tqdm(pool.imap(worker, reference), total=len(reference)))
+    for test_case, traj in results:
+        indexed_sample_dict[test_case] = traj
     return indexed_sample_dict
 
 
 if __name__ == '__main__':
-    reference = 'md_emulation_benchmark_0.1/md_emulation/testcases.csv'
-    sample_dir = 'samples'
-    indexed_samples = get_indexed_samples(reference, sample_dir)
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    parser = argparse.ArgumentParser(description='BioEmu MD-emulation benchmark')
+    parser.add_argument(
+        '--reference',
+        default=os.path.join(script_dir, 'md_emulation_benchmark_0.1', 'md_emulation', 'testcases.csv'),
+        help='CSV with a test_case column. Default: the BioEmu asset file next to this script.',
+    )
+    parser.add_argument(
+        '--sample_dir',
+        default='samples',
+        help='Generated ensembles. Each test case is a subdirectory with topology.pdb and traj.dcd. '
+             'A relative path is resolved from the working directory.',
+    )
+    parser.add_argument(
+        '--output_dir',
+        default='results',
+        help='Directory for results_metrics.csv and results_projections.npz.',
+    )
+    args = parser.parse_args()
+    indexed_samples = get_indexed_samples(args.reference, args.sample_dir)
     results = evaluate_md_emulation(indexed_samples)
-    results.save_results('results')
+    results.save_results(args.output_dir)
 
     aggregate_metrics = results.get_aggregate_metrics()
     print(aggregate_metrics)

@@ -21,6 +21,7 @@ import pandas as pd
 from tqdm import tqdm
 from pdbfixer import PDBFixer
 from openmm.app import PDBFile
+import argparse
 
 
 def process_single_frame(frame_info, pH, output_path, tmp_path):
@@ -42,58 +43,62 @@ def process_single_frame(frame_info, pH, output_path, tmp_path):
         PDBFile.writeFile(fixer.topology, fixer.positions, out_pdb)
         out_pdb.write("END\n")
 
-# === CONFIG ===
-# MAKE SURE TO REPLACE THESE PATHS WITH YOUR PATHS 
-import argparse
+def main():
+    parser = argparse.ArgumentParser(description='Add hydrogens to generated peptide ensembles.')
+    parser.add_argument(
+        '--input-root', '-i', type=str, required=True,
+        help='Ensemble root. Each protein directory contains topology.pdb and traj_no_clash.xtc.',
+    )
+    parser.add_argument(
+        '--output-root', '-o', type=str, required=True,
+        help='Output root. Writes {protein}/frame1.pdb, frame2.pdb, ...',
+    )
+    parser.add_argument(
+        '--exp-root', '-e', type=str, required=True,
+        help='PeptoneDB-Integrative root. Each protein directory contains info.csv with a pH column.',
+    )
+    args = parser.parse_args()
+    input_root = args.input_root
+    output_root = args.output_root
+    exp_path = args.exp_root
 
-argparse.add_argument('--input-root', '-i', type=str, required=True)
-argparse.add_argument('--output-root', '-o', type=str, required=True)
-argparse.add_argument('--exp-root', '-e', type=str, required=True)
-args = argparse.parse_args()
-input_root = args.input_root
-output_root = args.output_root
-exp_path = args.exp_path
+    os.makedirs(output_root, exist_ok=True)
 
-os.makedirs(output_root, exist_ok=True)
+    proteins = [f for f in os.listdir(exp_path) if os.path.isdir(os.path.join(exp_path, f))]
+    pH_dict = {prot: np.mean(pd.read_csv(os.path.join(exp_path, prot, 'info.csv'))['pH']) for prot in proteins}
 
-# === Load protein list ===
-proteins = [f for f in os.listdir(exp_path) if os.path.isdir(os.path.join(exp_path, f))]
+    num_cores = max(os.cpu_count() // 4, 1)
+    for protein in proteins:
+        input_model = os.path.join(input_root, protein, "topology.pdb")
+        traj_path = input_model.replace('topology.pdb', 'traj_no_clash.xtc')
+        output_path = os.path.join(output_root, protein)
+        tmp_path = os.path.join(output_path, 'tmp')
 
-# === Load average pH values ===
-pH_dict = {prot: np.mean(pd.read_csv(os.path.join(exp_path, prot, 'info.csv'))['pH']) for prot in proteins}
+        if os.path.exists(os.path.join(output_path, "frame1.pdb")):
+            print(f"Skipping {protein}: frames already exist.")
+            continue
 
-NUM_CORES = max(os.cpu_count() // 4, 1)
-# === Iterate over proteins ===
-for protein in proteins:
-    input_model = os.path.join(input_root, protein, "topology.pdb")
-    traj_path = input_model.replace('topology.pdb', 'traj_no_clash.xtc')
-    output_path = os.path.join(output_root, protein)
-    tmp_path = os.path.join(output_path, 'tmp')
+        os.makedirs(output_path, exist_ok=True)
+        os.makedirs(tmp_path, exist_ok=True)
 
-    if os.path.exists(os.path.join(output_path, "frame1.pdb")):
-        print(f"Skipping {protein}: frames already exist.")
-        continue
+        if not os.path.exists(traj_path):
+            continue
+        traj = md.load(traj_path, top=input_model)
+        pH = pH_dict[protein]
 
-    os.makedirs(output_path, exist_ok=True)
-    os.makedirs(tmp_path, exist_ok=True)
+        print(f"Processing {protein} ({traj.n_frames} frames) using {num_cores} cores...")
 
-    # Load trajectory
-    if not os.path.exists(traj_path):
-        continue
-    traj = md.load(traj_path, top=input_model)
-    pH = pH_dict[protein]
+        worker_func = functools.partial(process_single_frame, pH=pH, output_path=output_path, tmp_path=tmp_path)
+        if num_cores == 1:
+            for i, frame in enumerate(tqdm(traj)):
+                worker_func((i, frame))
+        else:
+            with mp.Pool(num_cores) as executor:
+                list(tqdm(executor.imap_unordered(worker_func, enumerate(traj)), total=traj.n_frames))
 
-    print(f"Processing {protein} ({traj.n_frames} frames) using {NUM_CORES} cores...")
+        print(f"Finished: {protein}")
 
-    # --- MULTIPROCESSING EXECUTION ---
-    worker_func = functools.partial(process_single_frame, pH=pH, output_path=output_path, tmp_path=tmp_path)
-    if NUM_CORES == 1:
-        for i, frame in enumerate(tqdm(traj)):
-            worker_func((i, frame))
-    else:
-        with mp.Pool(NUM_CORES) as executor:
-            # We pass individual frames (slices) to the workers
-            list(tqdm(executor.imap_unordered(worker_func, enumerate(traj)), total=traj.n_frames))
 
-    print(f"Finished: {protein}")
+if __name__ == '__main__':
+    main()
 
