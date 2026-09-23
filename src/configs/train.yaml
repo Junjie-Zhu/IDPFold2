@@ -1,7 +1,7 @@
 # configurations for training
 task_prefix: HYBRID_TRAIN
 batch_size: 8  # batch size on single device
-epochs: 500
+epochs: 250
 target_pred: v
 checkpoint_interval: 2  # save checkpoint every n epochs
 seed: 42
