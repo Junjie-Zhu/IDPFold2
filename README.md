@@ -86,6 +86,8 @@ python -m pytest
 
 The same CPU tests are also run by GitHub Actions on Python 3.11. CUDA and Ascend smoke tests are skipped in CI and on machines whose installed PyTorch build does not support the local GPU.
 
+Installation and tests typically only take several minutes. 
+
 ## Inference
 
 The model takes a `.csv` file as input, where monomers and multimers are handled seperately. The file should contain two columns `test_case` and `sequence`, denoting the name and sequence of target system respectively. Examples can be find in [data](data) directory.
@@ -96,7 +98,7 @@ Directory to which the PLM embeddings are saved should be assigned. If no embedd
 
 ```bash
 python src/inference.py \
-	  prefix=MONOMER \
+    prefix=MONOMER \
     ckpt_dir=/PATH/TO/CHECKPOINT/IDPFold2_ema_0.999_260114.pth \
     plm_emb_dir=./embeddings \
     csv_dir=/PATH/TO/INPUT/SEQUENCES \
@@ -233,11 +235,13 @@ python src/train.py \
 
 We provided post-processing scripts in the [scripts](scripts) directory, enabling quick evaluation of generated ensembles. We also provided some revised scripts from BioEmu-Benchmarks or PeptoneBench in the [benchmarks](benchmarks) directory, to calculate RMSD, native contacts, TiCA and reweighted SAXS/CS/PRE/RDC profiles. You may also refer to [Zenodo](https://zenodo.org/records/18239596) for plotting scripts.
 
-Radius of gyration (Rg) and end-to-end distance (Re2e) can be quickly calculated by the following command:
+Radius of gyration (Rg), end-to-end distance (Re2e), simplified DSSP helix and coil content, disorder ratio, and Cα distance maps can be calculated by:
 
 ```bash
 python scripts/quick_analysis.py /PATH/TO/GENERATED/ENSEMBLE
 ```
+
+The ensemble directory contains one multi-model PDB per system. The command writes `metrics.pkl` in that directory, with per-model `rg_predict` and `re2e_predict` in Å, per-residue helix and coil fractions, and `disorder_ratio`. It also writes `{name}_contact_map.npy` with the ensemble-mean and per-model Cα–Cα distances in Å and the chain lengths. DSSP uses mdtraj and needs backbone atoms plus `mkdssp` on `PATH`, so coarse-grained ensembles should be backmapped first. Pass `--reference-dir /PATH/TO/REFS` when a figure needs the reference distance matrix, or fold-upon-binding DSSP mapped from a peptide onto a complex. The figure-by-figure list of fields is in [benchmarks/reproducibility/figure_data_guide.md](benchmarks/reproducibility/figure_data_guide.md).
 
 ### Backmapping
 
@@ -264,7 +268,31 @@ Benchmark scripts live under `benchmarks/`. Each workflow documents the external
 
 ### Retrain
 
+To start a retrain pipeline with the hybrid dataset we reported, you should refer to the following guidance:
 
+#### Prepare data
+
+The processed protein structures are provided in Zenodo, truncated into 4 files. First download and concatenate them, then unzip the full archive.
+
+```bash
+mkdir hybrid
+cd hybrid
+
+wget 
+unzip
+
+wget
+cat Processed_Training_Data.tar.zst.* > Processed_Training_Data.tar.zst
+tar 
+```
+
+It's faster to extract ESM2 embeddings from fasta then to download our processed ones, we recommend using the following command:
+
+```bash
+python scripts/get_esm_embedding.py --csv_path hybrid/seq_hybrid.fasta --output_path hybrid/embedding
+```
+
+#### Train with prepared data
 
 ### Expert utilization
 
@@ -296,7 +324,7 @@ argmax_fraction = np.bincount(assignment, minlength=scores.shape[1]) / len(assig
 
 ### Figure bundle
 
-
+How each panel in Figures 2–4 is obtained from structures, experimental profiles, or an existing benchmark is written in [benchmarks/reproducibility/figure_data_guide.md](benchmarks/reproducibility/figure_data_guide.md). Bundle for plotting the figures from processed features can be found in [Zenodo](https://doi.org/10.5281/zenodo.18239595). 
 
 ## Contact
 
@@ -352,14 +380,15 @@ IDPFold2/
 │       ├── align_utils.py                        # masked mean and Kabsch alignment
 │       └── idx_emb_utils.py                      # sinusoidal index and time embeddings
 ├── scripts/
-│   ├── quick_analysis.py                         # radius of gyration and end-to-end distance
+│   ├── quick_analysis.py                         # Rg, end-to-end distance, DSSP content, and Cα distance maps
 │   ├── _cg2all.py                                # coarse-grained to all-atom backmapping
 │   ├── get_esm_embedding.py                      # ESM-2 embeddings for inference or training
 │   └── process_training_trajs.py                 # simulation trajectory preprocessing
 ├── benchmarks/
-│   ├── bioemu-benchmark/                         # MD-emulation and multi-conformation metrics; see README4bioemu.md
+│   ├── bioemu-benchmark/                         # MD-emulation, fast-folding TICA, and multi-conformation metrics; see README4bioemu.md
 │   ├── peptonebench/                             # SAXS, CS, RDC, and PRE analysis; see README4peptone.md
-│   └── idr-multimer-benchmark/                   # multimer DockQ; see README4idr.md
+│   ├── idr-multimer-benchmark/                   # multimer DockQ; see README4idr.md
+│   └── reproducibility/                          # figure-data guide, SAXS case curves, and P(r); see figure_data_guide.md
 ├── test/                                         # installation, device, dataset, and functional-block tests
 ├── data/                                         # example monomer and multimer CSV inputs
 ├── notebooks/                                    # Colab monomer preview

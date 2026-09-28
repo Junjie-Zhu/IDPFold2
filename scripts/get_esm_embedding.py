@@ -1,5 +1,6 @@
 import os
 
+import argparse
 import pandas as pd
 import torch
 import esm
@@ -14,8 +15,15 @@ model = model.to(DEVICE)
 
 
 def main():
-    csv_path = './all_benchmark.csv'
-    output_path = './embedding'
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--csv_path', type=str, required=True)
+    parser.add_argument('--output_path', type=str, required=True)
+    args = parser.parse_args()
+
+    csv_path = args.csv_path
+    output_path = args.output_path
+
     os.makedirs(output_path, exist_ok=True)
 
     data = read_csv(csv_path)

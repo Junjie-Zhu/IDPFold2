@@ -1,5 +1,5 @@
+import argparse
 import os
-import sys
 import shutil
 import json
 import warnings
@@ -17,18 +17,16 @@ from tqdm import tqdm
 warnings.filterwarnings('ignore', category=UserWarning)
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+BENCHMARKS = ("localunfolding", "domainmotion", "crypticpocket", "ood60", "oodval")
 
-root_dir = sys.argv[1]
-assert os.path.exists(root_dir), f'Root directory does not exist: {root_dir}'
-input_dir = os.path.join(root_dir)
-processing_dir = os.path.join(root_dir, 'processing')
-os.makedirs(processing_dir, exist_ok=True)
-
-ref_cryp = pd.read_csv(os.path.join(SCRIPT_DIR, 'crypticpocket', 'references.csv'))
-ref_domi = pd.read_csv(os.path.join(SCRIPT_DIR, 'domainmotion', 'references.csv'))
-ref_loca = pd.read_csv(os.path.join(SCRIPT_DIR, 'localunfolding', 'references.csv'))
-ref_ood60 = pd.read_csv(os.path.join(SCRIPT_DIR, 'ood60', 'references.csv'))
-ref_oodval = pd.read_csv(os.path.join(SCRIPT_DIR, 'oodval', 'references.csv'))
+root_dir = None
+input_dir = None
+processing_dir = None
+ref_cryp = None
+ref_domi = None
+ref_loca = None
+ref_ood60 = None
+ref_oodval = None
 
 alignment_matrix = SubstitutionMatrix.std_protein_matrix()
 
@@ -127,17 +125,62 @@ RESI_THREE_TO_1 = {
     "VAL": "V",
 }
 
+def load_reference_tables():
+    """Load each benchmark's references.csv from the asset folder next to this script."""
+    global ref_cryp, ref_domi, ref_loca, ref_ood60, ref_oodval
+    tables = {}
+    for name in BENCHMARKS:
+        path = os.path.join(SCRIPT_DIR, name, "references.csv")
+        if not os.path.isfile(path):
+            raise FileNotFoundError(
+                f"Missing {path}. Copy the BioEmu assets next to this script."
+            )
+        tables[name] = pd.read_csv(path)
+    ref_cryp = tables["crypticpocket"]
+    ref_domi = tables["domainmotion"]
+    ref_loca = tables["localunfolding"]
+    ref_ood60 = tables["ood60"]
+    ref_oodval = tables["oodval"]
+    return tables
+
+
+def _init_worker(proc_dir, tables):
+    """Give pool workers the paths and reference tables set up in the parent."""
+    global processing_dir, ref_cryp, ref_domi, ref_loca, ref_ood60, ref_oodval
+    processing_dir = proc_dir
+    ref_cryp = tables["crypticpocket"]
+    ref_domi = tables["domainmotion"]
+    ref_loca = tables["localunfolding"]
+    ref_ood60 = tables["ood60"]
+    ref_oodval = tables["oodval"]
+
+
 def main():
+    global root_dir, input_dir, processing_dir
+    parser = argparse.ArgumentParser(
+        description="RMSD and native-contact fraction against BioEmu multi-conformation references."
+    )
+    parser.add_argument("predictions", help="Directory of predicted PDB files.")
+    parser.add_argument(
+        "--benchmark",
+        choices=BENCHMARKS,
+        default="localunfolding",
+        help="Which references.csv to filter on (default: localunfolding).",
+    )
+    args = parser.parse_args()
+
+    root_dir = args.predictions
+    if not os.path.isdir(root_dir):
+        raise SystemExit(f"Root directory does not exist: {root_dir}")
+    input_dir = root_dir
+    processing_dir = os.path.join(root_dir, "processing")
+    os.makedirs(processing_dir, exist_ok=True)
+    tables = load_reference_tables()
+
     print('Collecting system names...')
     system_names = [f.replace('.pdb', '') for f in os.listdir(input_dir) if f.endswith('.pdb')]
 
-    # first we have to filter systems for this benchmark
-    # test_cases = set(ref_cryp['test_case'].tolist() +
-    #                  ref_domi['test_case'].tolist() +
-    #                  ref_loca['test_case'].tolist() +
-    #                  ref_ood60['test_case'].tolist() +
-    #                  ref_oodval['test_case'].tolist())
-    test_cases = ref_loca['test_case'].tolist()
+    test_cases = tables[args.benchmark]["test_case"].tolist()
 
     system_names = [name.split(':') for name in system_names]
     filtered_system_names = []
@@ -156,7 +199,11 @@ def main():
             result = process_single_prediction(name)
             results.append(result)
     else:
-        with mp.Pool(processes=os.cpu_count()) as pool:
+        with mp.Pool(
+            processes=os.cpu_count(),
+            initializer=_init_worker,
+            initargs=(processing_dir, tables),
+        ) as pool:
             results = list(tqdm(pool.imap(process_single_prediction, filtered_system_names),
                                 total=len(filtered_system_names)))
 

@@ -1,4 +1,5 @@
 biotite
+deeptime
 mdtraj
 numpy
 pandas

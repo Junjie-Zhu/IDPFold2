@@ -2,8 +2,9 @@
 
 This guide describes the local workflow for evaluating generated structures and ensembles with the BioEmu benchmark scripts in this directory.
 
-The workflow has two parts:
+The workflow has three parts:
 
+- TICA fit and projection with `fit_tica.py` and `project_tica.py`.
 - MD-emulation free-energy metrics with `analyze_md_emulation.py`.
 - Multi-conformation RMSD/contact comparison with `compare_to_multi_conf.py`.
 
@@ -27,6 +28,8 @@ After downloading, place or link the asset directories next to these scripts:
 ./
 |-- analyze_md_emulation.py
 |-- compare_to_multi_conf.py
+|-- fit_tica.py
+|-- project_tica.py
 |-- projection.py
 |-- state_metric.py
 |-- utils.py
@@ -109,8 +112,10 @@ It also prints aggregate `mae`, `rmse`, and `coverage` metrics.
 Reference tables and PDB files are read from the benchmark folders next to `compare_to_multi_conf.py`, not from the working directory.
 
 ```bash
-python compare_to_multi_conf.py /PATH/TO/PREDICTIONS
+python compare_to_multi_conf.py /PATH/TO/PREDICTIONS --benchmark localunfolding
 ```
+
+`--benchmark` selects the reference table. The choices are `localunfolding` (the default), `domainmotion`, `crypticpocket`, `ood60`, and `oodval`. Figure 2 uses `localunfolding` for the native-contact fraction and `domainmotion` for the local RMSD.
 
 The script creates a processing directory under `/PATH/TO/PREDICTIONS`:
 
@@ -130,12 +135,49 @@ PREDICTIONS/
 - `local_rmsd`: local-region RMSD values.
 - `global_rmsd`: full matched-structure RMSD values.
 
-The per-case `*_contacts.npy` files store native-contact fractions for the local metric region.
+The per-case `*_contacts.npy` files store native-contact fractions for the local metric region. A native contact is a Cα pair under 8 Å with sequence separation of at least 3 residues in the reference; the fraction is how many of those pairs are recovered in each model.
 
-`compare_to_multi_conf.py` currently filters to the `localunfolding` test cases:
+## 4. Fast-folding TICA
 
-```python
-test_cases = ref_loca['test_case'].tolist()
+This path is separate from MD emulation. MD emulation projects Cα contacts with the matrices shipped in the BioEmu assets. Fast-folding TICA fits a deeptime model on all Cα–Cα distances of a reference trajectory, then projects other ensembles into that model. The two `projected_data` arrays are not interchangeable.
+
+Install `deeptime` in addition to the packages in `requirements.txt`. Features are mdtraj distances in nanometers. The sample must have the same Cα count and order as the reference.
+
+Fit one reference PDB, one topology-plus-trajectory, or a directory of either:
+
+```bash
+python fit_tica.py /PATH/TO/REFERENCE.pdb --output-dir /PATH/TO/TICA
+
+python fit_tica.py /PATH/TO/TRAJ.xtc \
+    --topology /PATH/TO/topology.pdb \
+    --output-dir /PATH/TO/TICA \
+    --lag-time 10 \
+    --dim 5
 ```
 
-To run a different subset, edit this line to use one or more of the loaded reference tables (`ref_cryp`, `ref_domi`, `ref_loca`, `ref_ood60`, `ref_oodval`).
+A directory may contain `{name}.pdb` files or subdirectories `{name}/topology.pdb` plus `traj.xtc`, `traj.dcd`, `samples.xtc`, or `traj_no_clash.xtc`. Each fit is `{name}_tica.npz` with the pickled model and the reference projection in `projected_data`. The default lag is 10 frames and the default dimension is 5. The trajectory needs more frames than the lag, and `dim` must be at least 2.
+
+Project the predicted ensemble, and optionally a BioEmu ensemble, with those models:
+
+```bash
+python project_tica.py \
+    --model-dir /PATH/TO/TICA \
+    --sample-dir /PATH/TO/SAMPLES \
+    --bioemu-dir /PATH/TO/BIOEMU \
+    --output-dir /PATH/TO/RESULTS
+```
+
+`--sample-dir` and `--bioemu-dir` use the same layout as the fitter: `{name}.pdb` or `{name}/topology.pdb` plus a trajectory. `--bioemu-dir` can be omitted.
+
+`/PATH/TO/RESULTS` then contains:
+
+```text
+RESULTS/
+|-- {name}_ref.npz
+|-- {name}_pred.npz
+|-- {name}_bioemu.npz                  # only with --bioemu-dir
+|-- results_metrics.csv
+`-- results_bioemu_metrics.csv         # only with --bioemu-dir
+```
+
+Each npz file has one array, `projected_data`. `results_metrics.csv` compares the sample with the reference on the first two TICA components. Columns are `test_case`, `mae`, `rmse`, and `coverage`, and the last row is `mean`. `mae` is the shift-minimized free-energy mean absolute error in kcal/mol. `results_bioemu_metrics.csv` is the same comparison for the BioEmu trajectories.
