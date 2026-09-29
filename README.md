@@ -1,7 +1,6 @@
 # IDPFold2
 
-![python](https://img.shields.io/badge/-Python_3.11-blue?logo=python&logoColor=white)
-[![pytorch](https://img.shields.io/badge/PyTorch_2.0+-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/get-started/locally/)
+![python](https://img.shields.io/badge/-Python_3.11-blue?logo=python&logoColor=white)[![pytorch](https://img.shields.io/badge/PyTorch_2.0+-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/get-started/locally/)[![Zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.18239595.svg)](https://doi.org/10.5281/zenodo.18239595)
 
 Implementation for [***Extending Conformational Ensemble Prediction to Multidomain Proteins and Protein Complex***](https://www.biorxiv.org/content/10.64898/2026.01.14.699584v1).
 
@@ -11,6 +10,7 @@ Implementation for [***Extending Conformational Ensemble Prediction to Multidoma
 
 * [2026-04-16] A colab notebook is available now, try it [here](https://colab.research.google.com/github/Junjie-Zhu/IDPFold2/blob/main/notebooks/IDPFold2_colab_monomer_preview.ipynb). Please note that the notebook was tested with Colab runtime version 2026.04, and you may have to change to this version if the latest one does not work.
 * [2026-07-20] We provide optimized [PeptoneBench](https://github.com/PeptoneLtd/peptonebench/tree/main), please refer to [benchmarks/peptonebench](benchmarks/peptonebench) for full guidance.
+* [2026-09-29] We optimized the [benchmark](benchmarks) pipelines, and updated supplementary data on [Zenodo](https://doi.org/10.5281/zenodo.18239595).
 
 ## Description
 
@@ -36,7 +36,9 @@ This repository contains training and inference code, and useful scripts for eva
   * [Backmapping](#Backmapping)
   * [Benchmarks](#Benchmarks)
 * [Reproducibility](#Reproducibility)
+  * [Retrain](#Retrain)
   * [Expert utilization](#Expert-utilization)
+  * [Figures](#Figures)
 * [Contact](#Contact)
 * [Acknowledgement](#Acknowledgement)
 * [Project layout](#Project-layout)
@@ -47,8 +49,10 @@ This repository contains training and inference code, and useful scripts for eva
 
 **Download weights from [Zenodo](https://doi.org/10.5281/zenodo.18239595).** 
 
-* `IDPFold2_ema_0.999_260114.pth`: For **inference**, or EMA checkpoint for training.
-* `IDPFold2_260114.pth`:  For training only.
+* `IDPFold2_ema_0.999_260114.pth`: For **inference**, or the EMA checkpoint for training.
+* `IDPFold2_260114.pth`: For training only.
+* `Ablation_ema_0.999_260411.pth`: Inference with the dense ablation model.
+* `Ablation_260411.pth`: Training the ablation model.
 
 ### Install with conda
 
@@ -73,8 +77,8 @@ pip install .
 
 **Note:** 
 
-* In some cases it will raise an undefined symbol error during installation, please refer to [this issue](https://github.com/databricks/megablocks/issues/159) for fixation. 
-* The acceleration effect of MegaBlocks has not been tested on our model as we mainly performed inference on Ascend 910B, which did not support this package.  Nevertheless, using either torch or Megablocks version merely affect the predicted structure.
+* In some cases installation raises an undefined-symbol error. The fix is described in [this MegaBlocks issue](https://github.com/databricks/megablocks/issues/159). 
+* The acceleration effect of MegaBlocks has not been tested on our model as we mainly performed inference on Ascend 910B, which did not support this package. The choice of the torch or MegaBlocks implementation does not change the predicted structure.
 
 ### Pytest
 
@@ -90,7 +94,7 @@ Installation and tests typically only take several minutes.
 
 ## Inference
 
-The model takes a `.csv` file as input, where monomers and multimers are handled seperately. The file should contain two columns `test_case` and `sequence`, denoting the name and sequence of target system respectively. Examples can be find in [data](data) directory.
+The model takes a `.csv` file as input, where monomers and multimers are handled separately. The file should contain two columns `test_case` and `sequence`, denoting the name and sequence of the target system. Examples are in the [data](data) directory.
 
 Directory to which the PLM embeddings are saved should be assigned. If no embedding file is found in the directory, the embeddings will be extracted and stored in the assigned directory.
 
@@ -140,7 +144,7 @@ python src/inference.py \
 
 ## Train
 
-For training you will have to preprocess the training dataset into `.pkl` files. We adapted this part mainly from [Proteina](https://github.com/NVIDIA-Digital-Bio/proteina).Two options are provided:
+For training you will have to preprocess the training dataset into `.pt` files. We adapted this part mainly from [Proteina](https://github.com/NVIDIA-Digital-Bio/proteina). Two options are provided:
 
 ### Preprocess PDB data
 
@@ -183,7 +187,7 @@ The code is annotated in `src/train.py` by default. Activating this part will al
 
 For simulation data or any data you want to use, make sure they are in `.pdb` or `.cif` format, determine certain sequence similarity and directly run `src/train.py`. See next part for detailed explanation of training arguments. 
 
-The hybrid dataset was created manually in our implementation by concatenation the processed metadata files.
+The hybrid dataset was created manually by concatenating the processed metadata of PDB, mdCATH, IDRome-o, and AF-CALVADOS. We provided the processed structures and concatenated metadatas for reproducibility, please see Section [Retrain](#Retrain).
 
 ### Train from scratch
 
@@ -191,7 +195,7 @@ The hybrid dataset was created manually in our implementation by concatenation t
 python src/train.py \
   	task_prefix=HYBRID_TRAIN \
   	batch_size=8 \
-  	epochs=500 \
+  	epochs=250 \
   	data.data_dir=/PATH/TO/DATASET \
   	data.plm_emb_dir=/PATH/TO/EMBEDDING \
 ```
@@ -199,11 +203,11 @@ python src/train.py \
 **Important arguments:**
 
 * `data.data_dir`: The root dataset directory. This directory should contain all information required for model training as listed:
-  * `raw/`: All structures used for model training.
-  * `processed/`: Processed features, features will be created if not exists. 
-  * `{data_dir}.csv`: Metadata for all training data, created after features are extracted.
-  * `seq_{data_dir}.csv`: Sequences, used for further clustering.
-  * `cluster_seqid_{split_sequence_similarity}_{data_dir}.tsv/fasta`: Cluster info.
+  * `raw/`: Structures used for model training. Not required when `processed/` and the metadata CSV are already present.
+  * `processed/`: Processed `.pt` features, created from `raw/` when they do not already exist.
+  * `{dirname}.csv`: Metadata for the training set. `{dirname}` is the directory name, not the full path.
+  * `seq_{dirname}.fasta`: Sequences used for clustering and for ESM-2 embeddings.
+  * `cluster_seqid_{split_sequence_similarity}_{dirname}.fasta` and the matching `.tsv`: Cluster assignments. Reused when `overwrite_sequence_clusters` is false.
 * `data.plm_emb_dir`: Directory to PLM embeddings. For training you have to extract the embeddings first, you may refer to `scripts/get_esm_embedding.py` for this step.
 
 You can find all arguments in `src/configs/train.yaml`. Distributed training is supported with `torchrun`, but **training across multiple machines is not supported**. Main reason for this is that device-level balance loss in MoE is not implemented, and training across machines may result in unexpected imbalanced expert assignment.
@@ -233,7 +237,7 @@ python src/train.py \
 
 ## Quick Evaluation
 
-We provided post-processing scripts in the [scripts](scripts) directory, enabling quick evaluation of generated ensembles. We also provided some revised scripts from BioEmu-Benchmarks or PeptoneBench in the [benchmarks](benchmarks) directory, to calculate RMSD, native contacts, TiCA and reweighted SAXS/CS/PRE/RDC profiles. You may also refer to [Zenodo](https://zenodo.org/records/18239596) for plotting scripts.
+Post-processing scripts in [scripts](scripts) evaluate generated ensembles. Revised BioEmu-Benchmarks and PeptoneBench scripts in [benchmarks](benchmarks) calculate RMSD, native contacts, TICA, and reweighted SAXS, chemical-shift, PRE, and RDC profiles. Plotting scripts and processed figure data are in `plot_bundle.tgz` on [Zenodo](https://doi.org/10.5281/zenodo.18239595).
 
 Radius of gyration (Rg), end-to-end distance (Re2e), simplified DSSP helix and coil content, disorder ratio, and Cα distance maps can be calculated by:
 
@@ -254,7 +258,7 @@ export OMP_NUM_THREAD=2
 python scripts/_cg2all.py -i /PATH/TO/GENERATED/ENSEMBLE -o /PATH/TO/OUTPUT/STRUCTURES --num_proc 20
 ```
 
-**Note: **You may have to adjust `OMP_NUM_THREAD` and `num_proc` (and `batch size`) for higher efficiency. Current setting works best in our practice with 40 cpu cores.
+**Note:** You may have to adjust `OMP_NUM_THREAD` and `num_proc` for higher efficiency. The current setting works best in our practice with 40 CPU cores.
 
 ### Benchmarks
 
@@ -268,37 +272,74 @@ Benchmark scripts live under `benchmarks/`. Each workflow documents the external
 
 ### Retrain
 
-To start a retrain pipeline with the hybrid dataset we reported, you should refer to the following guidance:
-
 #### Prepare data
 
-The processed protein structures are provided in Zenodo, truncated into 4 files. First download and concatenate them, then unzip the full archive.
+The reported model is trained on the hybrid set. Run the commands below to fetch the training set. Note thata the dataset directory has to be named `hybrid`.
 
 ```bash
-mkdir hybrid
+mkdir -p hybrid
 cd hybrid
 
-wget 
-unzip
+curl -fL \
+  -o hybrid_train_set_metadata.zip \
+  "https://zenodo.org/records/22824935/files/hybrid_train_set_metadata.zip?download=1"
+unzip hybrid_train_set_metadata.zip
 
-wget
+curl -fL \
+  -o "Processed_Training_Data.tar.zst.#1" \
+  "https://zenodo.org/records/22824935/files/Processed_Training_Data.tar.zst.[00-03]?download=1"
 cat Processed_Training_Data.tar.zst.* > Processed_Training_Data.tar.zst
-tar 
+md5sum Processed_Training_Data.tar.zst   # macOS: md5 -q
+# 9c49e72035b324c84503cba8c038c384
+zstd -d --stdout Processed_Training_Data.tar.zst | tar -xf -
+
+cd ..
+curl -fL \
+  -o train_set_metadata.zip \
+  "https://zenodo.org/records/22824935/files/train_set_metadata.zip?download=1"
+unzip train_set_metadata.zip
+
+python scripts/get_esm_embedding.py \
+  --fasta_path hybrid/seq_hybrid.fasta \
+  --output_path hybrid/embedding \
+  --only_f0
 ```
 
-It's faster to extract ESM2 embeddings from fasta then to download our processed ones, we recommend using the following command:
+After these commands, `hybrid/` contains:
 
-```bash
-python scripts/get_esm_embedding.py --csv_path hybrid/seq_hybrid.fasta --output_path hybrid/embedding
-```
+* `hybrid.csv`: training metadata.
+* `seq_hybrid.fasta`: sequences for clustering and ESM-2.
+* `cluster_seqid_0.9_hybrid.fasta` and `cluster_seqid_0.9_hybrid.tsv`: deposited clusters. Leave `data.split_sequence_similarity` at `0.9` so training reuses them.
+* `processed/`: one `.pt` feature file per training example.
+* `embedding/`: one `.pt` per FASTA header. With `--only_f0`, each IDRome system is `prefix_f0.pt`.
+
+The concatenated structure archive is about 45 GB. The extracted `processed/` tree is about 380 GB.
+
+`get_esm_embedding.py` encodes each distinct sequence once and copies that tensor to every header that shares it. Sequences of length 1000 or more are skipped and have no embedding file. `--only_f0` is for this training FASTA: an IDRome name with more than two underscore fields and a trailing `_fN` is saved only as `prefix_f0.pt`, which is the dataset `PDBDataset.get_embedding_name` loads. The other frames of that system are ignored.
 
 #### Train with prepared data
+
+Pass the three data paths on the command line, or set the same keys in `src/configs/train.yaml`.
+
+```bash
+python src/train.py \
+    data.data_dir=hybrid \
+    data.plm_emb_dir=hybrid/embedding \
+    data.complex_dir=train_set_metadata/PDB/contacts.csv
+```
+
+```yaml
+data:
+  data_dir: hybrid
+  plm_emb_dir: hybrid/embedding
+  complex_dir: train_set_metadata/PDB/contacts.csv
+```
 
 ### Expert utilization
 
 Router probabilities can be recorded during any forward pass that uses the torch Mixture-of-Experts implementation in [`src/model/components/moe_modules_torch.py`](src/model/components/moe_modules_torch.py). This hook lives only in that file. The MegaBlocks module [`src/model/components/moe_modules.py`](src/model/components/moe_modules.py) keeps the same forward interface and does not write scores.
 
-The dump is off by default, because one forward process produces tons of scores and make the file extremely large. To turn it on, uncomment `save_moe_router_scores(scores)` inside `MoE.router` (line 99):
+The dump is off by default, because one forward process writes a very large file. To turn it on, uncomment `save_moe_router_scores(scores)` inside `MoE.router` (line 99):
 
 ```python
 98  scores = self.router_linear(x.view(-1, x.shape[-1]))
@@ -322,9 +363,17 @@ argmax_fraction = np.bincount(assignment, minlength=scores.shape[1]) / len(assig
 
 `mean_prob` is the average router probability of each expert. `argmax_fraction` is the fraction of tokens whose highest probability falls on that expert. The default config activates `n_activated_experts: 2` experts per token, so this argmax fraction is a single-expert summary of the router distribution.
 
-### Figure bundle
+### Figures
 
-How each panel in Figures 2–4 is obtained from structures, experimental profiles, or an existing benchmark is written in [benchmarks/reproducibility/figure_data_guide.md](benchmarks/reproducibility/figure_data_guide.md). Bundle for plotting the figures from processed features can be found in [Zenodo](https://doi.org/10.5281/zenodo.18239595). 
+Panel-by-panel commands for Figures 2–4 are in [benchmarks/reproducibility/figure_data_guide.md](benchmarks/reproducibility/figure_data_guide.md). `plot_bundle.tgz` on [Zenodo](https://doi.org/10.5281/zenodo.18239595) contains the plotting scripts and the processed features those panels read.
+
+The same deposit also holds the generated ensembles used for those figures:
+
+* `BioEmu_Benchmark_ff_and_cath1.tgz`: fast-folding and CATH1 ensembles.
+* `Bioemu_Benchmark_multi_conf.tgz`: domain motion and local unfolding.
+* `Peptone_SAXS.tgz`, `Peptone_CS.tgz`, `Peptone_Integrative.tgz`: PeptoneBench ensembles and reweighted profiles.
+* `IDR_Multimers.tgz`: IDR multimer ensembles.
+* `Ablation_ff_and_cath1.tgz`, `Ablation_Peptone_SAXS.tgz`, `Ablation_Peptone_CS.tgz`: the same benchmarks for the dense ablation model. 
 
 ## Contact
 
@@ -382,13 +431,15 @@ IDPFold2/
 ├── scripts/
 │   ├── quick_analysis.py                         # Rg, end-to-end distance, DSSP content, and Cα distance maps
 │   ├── _cg2all.py                                # coarse-grained to all-atom backmapping
-│   ├── get_esm_embedding.py                      # ESM-2 embeddings for inference or training
-│   └── process_training_trajs.py                 # simulation trajectory preprocessing
+│   └── get_esm_embedding.py                      # ESM-2 embeddings from a FASTA file
 ├── benchmarks/
 │   ├── bioemu-benchmark/                         # MD-emulation, fast-folding TICA, and multi-conformation metrics; see README4bioemu.md
 │   ├── peptonebench/                             # SAXS, CS, RDC, and PRE analysis; see README4peptone.md
 │   ├── idr-multimer-benchmark/                   # multimer DockQ; see README4idr.md
-│   └── reproducibility/                          # figure-data guide, SAXS case curves, and P(r); see figure_data_guide.md
+│   └── reproducibility/
+│       ├── figure_data_guide.md                  # Figures 2–4: which command writes each panel
+│       ├── prepare_saxs_cases.py                 # experimental and Pepsi-SAXS I(q) tables
+│       └── calculate_pr.py                       # pair-distance distribution P(r)
 ├── test/                                         # installation, device, dataset, and functional-block tests
 ├── data/                                         # example monomer and multimer CSV inputs
 ├── notebooks/                                    # Colab monomer preview
