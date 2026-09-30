@@ -234,6 +234,12 @@ def compute_moe_loss(weight, num_layers, num_experts, top_k):
     return batched_loss
 
 
+def _model_attr(model, name):
+    if hasattr(model, name):
+        return getattr(model, name)
+    return getattr(model.module, name)
+
+
 def training_predict(
     batch,
     flow_matching,
@@ -294,29 +300,20 @@ def training_predict(
     # loss
     fm_loss = compute_fm_loss(x_1, x_pred, t, mask)
     fm_loss = torch.mean(fm_loss)
-    if moe_loss_weight != 0.0:
-        try:
-            n_layers = model.nlayers
-            n_experts = model.n_experts
-            top_k = model.top_k
-        except:
-            n_layers = model.module.nlayers
-            n_experts = model.module.n_experts
-            top_k = model.module.top_k
+    loss_dict = {"fm_loss": fm_loss.item()}
+
+    if _model_attr(model, "use_moe") and moe_loss_weight != 0.0:
         moe_loss = compute_moe_loss(
             weight=moe_loss_weight,
-            num_layers=n_layers,
-            num_experts=n_experts,
-            top_k=top_k,
+            num_layers=_model_attr(model, "nlayers"),
+            num_experts=_model_attr(model, "n_experts"),
+            top_k=_model_attr(model, "top_k"),
         )
-    else:
-        moe_loss = 0.0
+        loss_dict["moe_loss"] = moe_loss.item()
+        return fm_loss + moe_loss, loss_dict
 
-    loss_dict = {
-        "fm_loss": fm_loss.item(),
-        "moe_loss": moe_loss.item(),
-    }
-    return fm_loss + moe_loss, loss_dict
+    moe_modules.clear_load_balancing_loss()
+    return fm_loss, loss_dict
 
 
 def generating_predict(

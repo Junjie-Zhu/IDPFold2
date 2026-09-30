@@ -37,6 +37,7 @@ def tiny_model_config():
         "num_registers": 0,
         "use_qkln": True,
         "use_moe": True,
+        "expansion_factor": 2,
         "n_experts": 2,
         "n_activated_experts": 1,
         "dim_moe_cond": 0,

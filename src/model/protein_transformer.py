@@ -162,6 +162,7 @@ class MultiheadAttnAndTransition(torch.nn.Module):
         residual_mha: Whether to use a residual connection in the mha layer.
         residual_transition: Whether to use a residual connection in the transition layer.
         parallel_mha_transition: Whether to run mha and transition in parallel or sequentially.
+        expansion_factor: Hidden-width multiplier of the post-attention transition (dense layer or MoE expert).
         use_attn_pair_bias: Whether to use a pair represnetation to bias attention.
         use_qkln: Whether to use layer norm on keyus and queries for attention.
         dropout: droput use in the self-attention layer.
@@ -365,6 +366,8 @@ class ProteinTransformerAF3(torch.nn.Module):
             **kwargs,
         )
 
+        # Conditioning transitions stay at a fixed expansion. model.expansion_factor
+        # applies only to the post-attention transition below.
         self.transition_c_1 = Transition(kwargs["dim_cond"], expansion_factor=2)
         self.transition_c_2 = Transition(kwargs["dim_cond"], expansion_factor=2)
 
@@ -377,6 +380,7 @@ class ProteinTransformerAF3(torch.nn.Module):
             **kwargs,
         )
 
+        self.use_moe = kwargs["use_moe"]
         self.n_experts = kwargs["n_experts"]
         self.top_k = kwargs["n_activated_experts"]
 
@@ -391,6 +395,7 @@ class ProteinTransformerAF3(torch.nn.Module):
                     residual_mha=kwargs["residual_mha"],
                     residual_transition=kwargs["residual_transition"],
                     parallel_mha_transition=kwargs["parallel_mha_transition"],
+                    expansion_factor=kwargs.get("expansion_factor", 2),
                     use_attn_pair_bias=kwargs["use_attn_pair_bias"],
                     use_qkln=self.use_qkln,
                     use_moe=kwargs["use_moe"],
@@ -399,7 +404,7 @@ class ProteinTransformerAF3(torch.nn.Module):
                     dim_moe_cond=kwargs["dim_moe_cond"],
                     capacity_factor=kwargs["capacity_factor"],
                     normalize_expert_weights=kwargs["normalize_expert_weights"],
-                    load_balance=kwargs["training"],
+                    load_balance=kwargs["training"] and self.use_moe,
                 )
                 for _ in range(self.nlayers)
             ]

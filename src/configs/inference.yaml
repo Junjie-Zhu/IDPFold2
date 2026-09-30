@@ -84,6 +84,7 @@ model:
   use_qkln: True
 
   use_moe: True
+  expansion_factor: 2  # hidden width of the post-attention transition only (dense layer or each MoE expert): token_dim * expansion_factor
   n_experts: 5
   n_activated_experts: 2
   dim_moe_cond: 0
