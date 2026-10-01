@@ -1,6 +1,6 @@
 # IDPFold2
 
-![python](https://img.shields.io/badge/-Python_3.11-blue?logo=python&logoColor=white)[![pytorch](https://img.shields.io/badge/PyTorch_2.0+-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/get-started/locally/)[![Zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.18239595.svg)](https://doi.org/10.5281/zenodo.18239595)
+![python](https://img.shields.io/badge/-Python_3.11-blue?logo=python&logoColor=white) [![pytorch](https://img.shields.io/badge/PyTorch_2.0+-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/get-started/locally/) [![Zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.18239595.svg)](https://doi.org/10.5281/zenodo.18239595)
 
 Implementation for [***Extending Conformational Ensemble Prediction to Multidomain Proteins and Protein Complex***](https://www.biorxiv.org/content/10.64898/2026.01.14.699584v1).
 
